@@ -25,27 +25,37 @@ pub async fn serve(bind: &str, port: u16) -> std::io::Result<()> {
         let Ok((mut s, _)) = listener.accept().await else { continue };
         let store = store.clone();
         tokio::spawn(async move {
-            let mut buf = Vec::new();
-            if s.read_to_end(&mut buf).await.is_err() || buf.len() < 3 {
+            // Fixed-length frames, so neither side waits for the other to half-close: a proxy in between
+            // (port forwarding, a load balancer, a NAT) may turn a half-close into a full close.
+            let mut head = [0u8; 3];
+            if s.read_exact(&mut head).await.is_err() {
                 return;
             }
-            let slot = u16::from_le_bytes([buf[1], buf[2]]);
-            match buf[0] {
-                b'P' if buf.len() == 3 + PACKET_SIZE => {
+            let slot = u16::from_le_bytes([head[1], head[2]]);
+            match head[0] {
+                b'P' => {
+                    let mut packet = vec![0u8; PACKET_SIZE];
+                    if s.read_exact(&mut packet).await.is_err() {
+                        return;
+                    }
                     let mut st = store.lock().unwrap();
                     if st.len() >= CAPACITY {
                         st.remove(0);
                     }
-                    st.push((slot, buf[3..].to_vec()));
+                    st.push((slot, packet));
                 }
                 b'G' => {
-                    let mine: Vec<u8> = {
+                    let mine: Vec<(u16, Vec<u8>)> = {
                         let mut st = store.lock().unwrap();
                         let (take, keep): (Vec<_>, Vec<_>) = st.drain(..).partition(|(s, _)| *s == slot);
                         *st = keep;
-                        take.into_iter().flat_map(|(_, p)| p).collect()
+                        take
                     };
-                    let _ = s.write_all(&mine).await;
+                    let bytes: Vec<u8> = mine.iter().flat_map(|(_, p)| p.iter().copied()).collect();
+                    if s.write_all(&bytes).await.is_err() || s.shutdown().await.is_err() {
+                        // The reader went away: keep its packets for the next fetch.
+                        store.lock().unwrap().extend(mine);
+                    }
                 }
                 _ => {}
             }
@@ -68,7 +78,6 @@ pub async fn fetch(addr: &str, slot: u16) -> std::io::Result<Vec<Vec<u8>>> {
     let mut req = vec![b'G'];
     req.extend_from_slice(&slot.to_le_bytes());
     s.write_all(&req).await?;
-    s.shutdown().await?;
     let mut all = Vec::new();
     s.read_to_end(&mut all).await?;
     Ok(all.as_chunks::<PACKET_SIZE>().0.iter().map(|p| p.to_vec()).collect())
