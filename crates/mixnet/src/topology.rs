@@ -81,6 +81,10 @@ pub struct NodeEntry {
     pub port: u16,
     /// X-Wing public key, hex.
     pub public_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit_port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_store_port: Option<u16>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -108,7 +112,14 @@ impl Topology {
             let host = hosts.get(&role).ok_or_else(|| Error::Topology(format!("no host for {role}")))?;
             nodes.insert(
                 role.id(),
-                NodeEntry { role, host: host.clone(), port: role.default_port(), public_key: hex::encode(pk_bytes(key)) },
+                NodeEntry {
+                    role,
+                    host: host.clone(),
+                    port: role.default_port(),
+                    public_key: hex::encode(pk_bytes(key)),
+                    rate_limit_port: None,
+                    reply_store_port: None,
+                },
             );
         }
         let gateway = &hosts[&Role::Gateway];
@@ -128,6 +139,12 @@ impl Topology {
     pub fn shift_ports(&mut self, offset: u16) {
         for n in self.nodes.values_mut() {
             n.port += offset;
+            if let Some(p) = &mut n.rate_limit_port {
+                *p += offset;
+            }
+            if let Some(p) = &mut n.reply_store_port {
+                *p += offset;
+            }
         }
         for addr in [&mut self.rate_limit, &mut self.reply_store] {
             if let Some((host, port)) = addr.rsplit_once(':')
@@ -157,9 +174,38 @@ impl Topology {
         self.node(id).map(|n| format!("{}:{}", n.host, n.port))
     }
 
+    /// `host:port` of a gateway's rate limiter.
+    pub fn rate_limit_addr(&self, gw_id: u16) -> Result<String> {
+        let node = self.node(gw_id)?;
+        if let Some(port) = node.rate_limit_port { Ok(format!("{}:{}", node.host, port)) } else { Ok(self.rate_limit.clone()) }
+    }
+
+    /// `host:port` of a gateway's reply store.
+    pub fn reply_store_addr(&self, gw_id: u16) -> Result<String> {
+        let node = self.node(gw_id)?;
+        if let Some(port) = node.reply_store_port { Ok(format!("{}:{}", node.host, port)) } else { Ok(self.reply_store.clone()) }
+    }
+
     pub fn public_key(&self, id: u16) -> Result<EncapsulationKey> {
         let bytes = hex::decode(&self.node(id)?.public_key).map_err(|e| Error::Topology(e.to_string()))?;
         Ok(pk_from_bytes(&bytes))
+    }
+
+    /// Returns all node IDs belonging to a given role.
+    pub fn nodes_for_role(&self, role: Role) -> Vec<u16> {
+        self.nodes.iter().filter(|(_, n)| n.role == role).map(|(&id, _)| id).collect()
+    }
+
+    /// Returns all node IDs in a given layer index (1 = Gateway, 2 = Mix, 3 = Exit, 4 = ReplyRelay).
+    pub fn layer_node_ids(&self, layer: u16) -> Vec<u16> {
+        if let Some(role) = Role::from_id(layer) {
+            let matches = self.nodes_for_role(role);
+            if !matches.is_empty() {
+                return matches;
+            }
+        }
+        // Fallback: match any node whose id / 10 == layer or id == layer
+        self.nodes.keys().copied().filter(|&id| id == layer || id / 10 == layer).collect()
     }
 
     pub fn members(&self) -> Result<Vec<Digest>> {
