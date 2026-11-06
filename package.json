@@ -1,0 +1,22 @@
+{
+  "name": "topi-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "sdk",
+    "scripts",
+    "mempool"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "npm run build --workspace sdk",
+    "test": "npm test --workspace sdk && npm test --workspace mempool",
+    "typecheck": "npm run typecheck --workspaces"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "~5.9.3"
+  }
+}
