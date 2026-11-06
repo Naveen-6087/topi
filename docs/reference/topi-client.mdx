@@ -1,0 +1,72 @@
+---
+title: "topi-client"
+description: "Register a member identity, ping the network, and submit pool spends."
+---
+
+```text
+topi-client <COMMAND>
+
+Commands:
+  register  Create a member identity and append its commitment to the member list
+  ping      A round trip through every hop and back
+  spend     Submit a pool spend to the exit's prover queue
+```
+
+## register
+
+```text
+topi-client register --identity <FILE> --members <FILE>
+```
+
+Writes a new 32-byte identity secret (hex) to `--identity` and appends its commitment, one hex line, to `--members`. Prints `registered member <commitment>`. The topology must be regenerated to include new members.
+
+## Connection options
+
+`ping` and `spend` share these options:
+
+| Option | Environment | Default | Meaning |
+|---|---|---|---|
+| `--topology` | `TOPI_TOPOLOGY` | | Topology file |
+| `--identity` | `TOPI_IDENTITY` | | Member identity file |
+| `--timeout` | | `300` | Seconds to wait for the reply |
+
+On first use in each epoch the client proves a rate-limit ticket and registers it with the gateway. It keeps its epoch and next token index in `<identity>.state` and serializes concurrent use with `<identity>.lock`.
+
+## ping
+
+```text
+topi-client ping --topology <FILE> --identity <FILE> [--timeout <SECONDS>]
+```
+
+Sends one packet through gateway, mix and exit and waits for the answer on the reply path. Prints one JSON line:
+
+| Field | Meaning |
+|---|---|
+| `reply` | The exit's answer, `{"ok": true, "pong": true}` |
+| `round_trip_ms` | Elapsed milliseconds, including any ticket proof |
+
+## spend
+
+```text
+topi-client spend --topology <FILE> --identity <FILE> --proof <CLIENT.tgz> --public <PUBLIC.json> [--timeout <SECONDS>]
+```
+
+| Option | Meaning |
+|---|---|
+| `--proof` | The client proof archive from `prove-client.sh` |
+| `--public` | JSON `{"fields": [...]}` with the spend's 82 public settle fields |
+
+Encodes the spend as `pq-spend/v1`, reports its size and packet count on stderr, sends it on one rate-limit token and prints the exit's answer:
+
+| Answer | Meaning |
+|---|---|
+| `{"ok": true, "queued": "<id>", "bytes": <n>}` | Queued for the exit prover as `<id>.json` and `<id>.tgz` |
+| `{"ok": false, "reason": "..."}` | Refused (malformed spend, wrong field count, or the exit could not write its queue) |
+
+## Exit status
+
+| Status | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | An error: unreadable files, rate limiting refused, timeout, or protocol error |
+| 2 | `spend` only: the exit answered with `ok` other than `true` |
