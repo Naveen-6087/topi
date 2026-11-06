@@ -1,0 +1,98 @@
+---
+title: "Pool"
+description: "Deployment records, reading the pool, rebuilding trees, and building deposit and settle transactions."
+---
+
+`@topi/sdk/pool` covers everything about `ShieldedPool` that does not need a proof: deployment records, the spend field layout, events, the chain view a witness needs, and the deposit and settle transactions.
+
+## Deployments
+
+```ts
+import { loadAccountDeployment, loadPoolDeployment } from "@topi/sdk";
+
+const pool = loadPoolDeployment("deployments/8141/pool.json");       // PoolDeployment
+const account = loadAccountDeployment("deployments/8141/account.json"); // AccountDeployment
+```
+
+`PoolDeployment` has `chainId`, `name`, `terminal`, `logic`, `pool` (the pool account, the settle sender), `paymaster`, `operator`, `testbed`, `poolId` and `scope` (eight field elements each), and for PQ deployments `pqPaymaster`, `exitPkSeed`, `exitPkRoot` and `verifier`. `parsePoolDeployment` and `parseAccountDeployment` validate already-parsed JSON. See [Deployments](/contracts/deployments) for the records on chain 8141.
+
+## Digests and fields
+
+| Export | Purpose |
+|---|---|
+| `FIELD_MODULUS` | `2_130_706_433n`, the KoalaBear prime |
+| `packDigest(d)`, `unpackDigest(w)` | Eight 32-bit elements to and from one word, element `i` at bits `32i` |
+| `packFields(fields, start)` | Packs `fields[start .. start + 8)` |
+| `contextDigest(address)` | An address as a spend's context: six 28-bit limbs and two zeros |
+| `deriveIdentity(label)` | Pool or scope identity for a new deployment from `keccak256(label)` |
+| `SPEND_FIELDS` | Offsets in the 82 fields: `poolId` 0, `scope` 8, `context` 16, `poolRoot` 50, `associationRoot` 58, `nullifier` 66 |
+| `checkSpendFields(fields, deployment, feeRecipient?)` | `null` if the fields belong to this pool and commit the fee to `feeRecipient` (default: the operator), otherwise the reason |
+
+## Reading the pool
+
+```ts
+import { PoolReader, RpcClient } from "@topi/sdk";
+
+const rpc = new RpcClient("https://rpc1.privacy.ethrex.xyz");
+const reader = new PoolReader(rpc, pool.pool);
+
+await reader.poolRoot();                 // packed root
+await reader.spent(nullifierPacked);     // boolean
+const reason = await reader.checkSpendState(fields); // null if both roots are known and the nullifier unspent
+```
+
+| Method | Returns |
+|---|---|
+| `poolRoot()`, `associationRoot()`, `nextPoolIndex()` | Current values |
+| `knownPoolRoot(root)`, `knownAssociationRoot(root)`, `spent(nullifier)` | Booleans for packed values |
+| `events(fromBlock?)` | Every `Deposited` and `Settled` event, decoded |
+| `checkSpendState(fields)` | `null` or a reason the spend cannot settle |
+| `chainView(deployment, fromBlock?)` | The `ChainView` that `pool-wallet witness` reads |
+
+`chainView` rebuilds both trees from events with `buildTrees`, reads the current roots, and throws if the events do not account for every pool leaf. Its fields use the wallet's names: `pool`, `scope`, `pool_leaves`, `association_leaves`, `pool_root`, `association_root`, `next_leaf`.
+
+## Events
+
+`decodePoolLog(log)` turns a raw log into a `DepositedEvent` (`kind: "deposited"`, `index`, `leafIndex`, `note`, `label`, `amount`, `poolRoot`, `associationRoot`) or a `SettledEvent` (`kind: "settled"`, `leafIndex`, `nullifierA`, `nullifierB`, `changeA`, `changeB`, `poolRoot`), each with `blockNumber` and `transactionHash`, or returns `null`. The topics are exported as `DEPOSITED_TOPIC` and `SETTLED_TOPIC`.
+
+## Deposit
+
+`depositCalldata(precommitment)` encodes `deposit(uint256[8])`. Send it with value from any account; from a PQ account, use it as the SENDER call of an [account transaction](/sdk/pq-accounts).
+
+## Settle
+
+```ts
+import {
+  buildSettleTransaction, encodeRaw, signSettleTransaction,
+} from "@topi/sdk";
+
+const tx = buildSettleTransaction({
+  deployment: pool,
+  chainId: await rpc.chainId(),
+  fees: await rpc.feeCaps(),
+  proofCall,                 // calldata.bin from the exit prover
+  fields: [fieldsA, fieldsB],
+});
+await signSettleTransaction(tx, pool, { pqSigner: exitSigner }); // or { ecdsaKey } for a classic paymaster
+
+const sim = await rpc.simulateFrameTransaction(encodeRaw(tx));
+if (!sim.valid) throw new Error(sim.violation ?? "invalid");
+const receipt = await rpc.waitForReceipt(await rpc.sendRawTransaction(encodeRaw(tx)));
+```
+
+`buildSettleTransaction` produces `[VERIFY pool, VERIFY paymaster, SENDER settle]` with the pool as sender and a fresh nonce key. `settleCalldata(proofCall, a, b)` encodes the SENDER frame's call on its own.
+
+Frame limits default to `defaultSettleLimits(pqPaymaster)` and can be overridden through `limits`:
+
+| Limit | Default |
+|---|---|
+| `poolGas` / `poolState` | 10,000 / 0 |
+| `paymasterGas` | 150,000 (PQ paymaster) or 60,000 (classic) |
+| `paymasterState` | 110,000 (covers the fresh nonce key) |
+| `settleGas` / `settleState` | 14,600,000 / 5,000,000 |
+
+`signSettleTransaction` refuses a signer of the wrong kind for the deployment's paymaster.
+
+## RPC client
+
+`RpcClient(url, { fetch?, headers? })` wraps JSON-RPC: `chainId`, `blockNumber`, `latestBlock`, `balance`, `transactionCount`, `code`, `call`, `getLogs`, `getReceipt`, `waitForReceipt`, `sendRawTransaction`, `sendFrameTransaction` (to an ERC-8421 alt mempool, as JSON), `simulateFrameTransaction` and `feeCaps(tip?)`. Errors are thrown as `RpcError` with the server's `code` and `data`. Receipts of frame transactions include `payer` and per-frame `frameReceipts`.
