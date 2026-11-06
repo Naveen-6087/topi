@@ -1,0 +1,542 @@
+diff --git a/packages/executor/src/config.ts b/packages/executor/src/config.ts
+index 9eb284f..7e6eb7b 100644
+--- a/packages/executor/src/config.ts
++++ b/packages/executor/src/config.ts
+@@ -249,6 +249,23 @@ export class Config {
+     // eth_sendFrameTransaction with a bare "Unexpected behaviour" the first
+     // time a frame transaction actually references a staked entity.
+     getAddress(config.stakingRegistryAddress);
++    const flag = (name: string, value: boolean | undefined, fallback: boolean): boolean => {
++      const v = fromEnvVar(name, value ?? fallback);
++      return typeof v === "string" ? v === "true" : Boolean(v);
++    };
++    config.eip8272 = flag("EIP8272", config.eip8272, bundlerDefaultConfigs.eip8272);
++    config.traceSimulation = flag(
++      "TRACE_SIMULATION",
++      config.traceSimulation,
++      bundlerDefaultConfigs.traceSimulation
++    );
++    config.maxVerifyGas = Number(
++      fromEnvVar("MAX_VERIFY_GAS", config.maxVerifyGas || bundlerDefaultConfigs.maxVerifyGas)
++    );
++    config.admissionPolicy = fromEnvVar(
++      "ADMISSION_POLICY",
++      config.admissionPolicy || bundlerDefaultConfigs.admissionPolicy
++    ) as string;
+     config.bundleGasLimitMarkup = Number(
+       fromEnvVar(
+         "BUNDLE_GAS_LIMIT_MARKUP",
+@@ -604,6 +621,10 @@ const bundlerDefaultConfigs: BundlerConfig = {
+   minStake: parseEther("0.01"),
+   minUnstakeDelay: 0,
+   stakingRegistryAddress: AddressZero,
++  eip8272: true,
++  traceSimulation: true,
++  maxVerifyGas: 100_000,
++  admissionPolicy: "",
+   minSignerBalance: parseEther("0.1"),
+   multicall: "0xcA11bde05977b3631167028862bE2a173976CA11", // default multicall address
+   estimationStaticBuffer: 35000,
+diff --git a/packages/executor/src/executor.ts b/packages/executor/src/executor.ts
+index f9d0792..a88aa29 100644
+--- a/packages/executor/src/executor.ts
++++ b/packages/executor/src/executor.ts
+@@ -13,6 +13,8 @@ import {
+   SubscriptionService,
+ } from "./services/index.js";
+ import { FrameTxValidationService } from "./services/UserOpValidation/validators/frameTx.js";
++import { setRecentRootsField } from "./services/FrameTxService/codec.js";
++import { loadAdmissionPolicy } from "./services/AdmissionPolicy/index.js";
+ import { FrameTxSimulationService } from "./services/FrameTxSimulationService/index.js";
+ import { ReceiptService } from "./services/ReceiptService/index.js";
+ import { StakingRegistryService } from "./services/StakingRegistryService/index.js";
+@@ -79,6 +81,12 @@ export class Executor {
+     this.metrics = options.metrics;
+ 
+     this.networkConfig = options.config.getNetworkConfig();
++    setRecentRootsField(this.networkConfig.eip8272);
++    if (!this.networkConfig.traceSimulation && !this.networkConfig.admissionPolicy) {
++      throw new Error(
++        "traceSimulation is off but no admissionPolicy is set: without a trace, a mempool needs its own rules"
++      );
++    }
+ 
+     this.publicClient = this.config.getPublicClient();
+ 
+@@ -151,10 +159,27 @@ export class Executor {
+       (address) => this.publicClient.getBalance({ address })
+     );
+ 
++    const policy = this.networkConfig.admissionPolicy
++      ? loadAdmissionPolicy(this.networkConfig.admissionPolicy, {
++          rpcEndpoint: this.networkConfig.rpcEndpoint,
++          chainId: this.chainId,
++          log: (line) => this.logger.info(`[policy] ${line}`),
++        }).then((loaded) => {
++          this.logger.info(`[x] ADMISSION POLICY ${loaded.name} (${this.networkConfig.admissionPolicy})`);
++          return loaded;
++        })
++      : Promise.resolve(null);
++    // A broken policy module must fail loudly, not admit everything.
++    policy.catch((err) => {
++      this.logger.error(err, "admission policy failed to load");
++      process.exit(1);
++    });
+     this.frameTxSimulationService = new FrameTxSimulationService(
+       this.publicClient,
+       this.frameTxValidationService,
+-      this.logger
++      this.logger,
++      this.networkConfig.traceSimulation,
++      policy
+     );
+ 
+     this.receiptService = new ReceiptService(this.publicClient);
+diff --git a/packages/executor/src/interfaces.ts b/packages/executor/src/interfaces.ts
+index a41846c..d1057c0 100644
+--- a/packages/executor/src/interfaces.ts
++++ b/packages/executor/src/interfaces.ts
+@@ -207,6 +207,19 @@ export interface NetworkConfig {
+   precompiles: string[];
+   // flag to relay userops to connected peers via p2p when userop is validated because of whitelisted entities
+   relayOpsWithWhitelistedEntities: boolean;
++  // The chain encodes EIP-8272 recent_root_references as the 9th field of a frame transaction.
++  // false for chains without EIP-8272, whose frame transactions have 8 fields.
++  eip8272: boolean;
++  // Ask the node for an ERC-7562 trace (ethrex eip8141-tracer). false for nodes without tracing:
++  // then only transactions whose every validation-prefix entity is whitelisted are admitted, and
++  // the admission policy below stands in for the opcode and storage rules.
++  traceSimulation: boolean;
++  // This mempool's validation budget: sum of the prefix's execution limits plus signature cost.
++  // ERC-8421 lets an alternative mempool raise EIP-8141's 100,000 (MAX_VERIFY_GAS).
++  maxVerifyGas: number;
++  // Path of an ES module whose default export builds this mempool's own admission rules
++  // (see AdmissionPolicy in services/AdmissionPolicy). Empty: none.
++  admissionPolicy: string;
+ }
+ 
+ export type BundlerConfig = Omit<
+diff --git a/packages/executor/src/modules/eth.ts b/packages/executor/src/modules/eth.ts
+index 6a76f7c..99b7d64 100644
+--- a/packages/executor/src/modules/eth.ts
++++ b/packages/executor/src/modules/eth.ts
+@@ -436,7 +436,7 @@ export class Eth {
+       blobVersionedHashes: tx.blobVersionedHashes ?? [],
+     };
+ 
+-    const { simulation } = await this.frameTxSimulationService.simulate(fullTx);
++    const { simulation } = await this.frameTxSimulationService.simulate(fullTx, undefined, false);
+     const gasFee = await this.skandhaModule.getGasPrice();
+ 
+     const frames = simulation.frameReceipts.map((receipt) => ({
+diff --git a/packages/executor/src/services/AdmissionPolicy/index.ts b/packages/executor/src/services/AdmissionPolicy/index.ts
+new file mode 100644
+index 0000000..3151f6f
+--- /dev/null
++++ b/packages/executor/src/services/AdmissionPolicy/index.ts
+@@ -0,0 +1,42 @@
++/**
++ * An alternative mempool's own admission rules (ERC-8421: "a mempool is defined by its rules"),
++ * loaded from an ES module so a mempool can be defined without forking this validator.
++ *
++ * The module's default export receives `{ rpcEndpoint, chainId, log }` and returns (or resolves to)
++ * an `AdmissionPolicy`. `check` runs after the sidecar's own structural, signature and simulation
++ * checks, at admission and on every re-simulation (`MempoolReconciler`, once per block), and throws
++ * with the rule's reason to refuse; the refusal is reported under the explorer's `policy` rule.
++ */
++import { pathToFileURL } from "node:url";
++import { Hex } from "viem";
++import { FrameTransaction } from "@skandha/types/lib/contracts/FrameTx.js";
++
++export interface AdmissionPolicy {
++  /** Short name for logs and the explorer. */
++  name: string;
++  /** Throws (with the broken rule as message) to refuse `tx`. */
++  check(tx: FrameTransaction, rawTx: Hex): Promise<void>;
++}
++
++export interface AdmissionPolicyContext {
++  rpcEndpoint: string;
++  chainId: number;
++  log: (line: string) => void;
++}
++
++export async function loadAdmissionPolicy(
++  path: string,
++  context: AdmissionPolicyContext
++): Promise<AdmissionPolicy> {
++  const url = /^[a-z]+:/i.test(path) && !/^[a-z]:[\/]/i.test(path) ? path : pathToFileURL(path).href;
++  const mod = await import(url);
++  const build = mod.default ?? mod.createPolicy;
++  if (typeof build !== "function") {
++    throw new Error(`admission policy ${path} has no default export`);
++  }
++  const policy = (await build(context)) as AdmissionPolicy;
++  if (!policy || typeof policy.check !== "function") {
++    throw new Error(`admission policy ${path} did not return { name, check }`);
++  }
++  return policy;
++}
+diff --git a/packages/executor/src/services/BundlingService/relayers/privileged.ts b/packages/executor/src/services/BundlingService/relayers/privileged.ts
+index 9220b85..4c7d66c 100644
+--- a/packages/executor/src/services/BundlingService/relayers/privileged.ts
++++ b/packages/executor/src/services/BundlingService/relayers/privileged.ts
+@@ -110,6 +110,23 @@ export class PrivilegedRelayer extends BaseRelayer {
+       this.logger.debug("Sending to a separate rpc");
+     }
+ 
++    // A public chain whose node we do not run (rpcEndpointSubmitMethod "eth_sendRawTransaction"):
++    // the already-signed transaction goes in through the standard method. The node's own mempool then
++    // applies its rules too, so this needs a chain whose public mempool accepts what we relay.
++    if (this.networkConfig.rpcEndpointSubmitMethod === "eth_sendRawTransaction") {
++      try {
++        return (await client.request({ method: "eth_sendRawTransaction", params: [rawTx] })) as Hex;
++      } catch (err) {
++        // A resubmission of what the node already holds (pending or mined) is not a failure; nodes
++        // word that refusal differently (ethrex: a bare "invalid parameters"), so ask the node.
++        const known = await client
++          .request({ method: "eth_getTransactionByHash", params: [txHash] })
++          .catch(() => null);
++        if (known) return txHash;
++        throw err;
++      }
++    }
++
+     const targetBlock = this.targetBlocks.get(txHash);
+     const params: unknown[] =
+       targetBlock !== undefined
+diff --git a/packages/executor/src/services/FrameTxService/codec.ts b/packages/executor/src/services/FrameTxService/codec.ts
+index 73acc29..acb52aa 100644
+--- a/packages/executor/src/services/FrameTxService/codec.ts
++++ b/packages/executor/src/services/FrameTxService/codec.ts
+@@ -138,7 +138,21 @@ function decodeRecentRootReference(
+  * `computeSigHash` and `encodeRawFrameTx` both build on this function, so the
+  * signature hash and the canonical wire bytes follow automatically.
+  */
++let recentRootsField = true;
++
++/**
++ * Chains without EIP-8272 (e.g. ethrex's chain 8141 testnet) encode a frame transaction as the first
++ * 8 fields only. Set once at startup from `NetworkConfig.eip8272`; it changes the sighash and the
++ * transaction hash, so it must match the chain.
++ */
++export function setRecentRootsField(enabled: boolean): void {
++  recentRootsField = enabled;
++}
++
+ export function encodeFrameTx(tx: FrameTransaction): Uint8Array {
++  if (!recentRootsField && tx.recentRootReferences.length > 0) {
++    throw new Error("this chain has no EIP-8272: a frame transaction cannot carry recent root references");
++  }
+   const structure: Input[] = [
+     encodeBigint(tx.chainId),
+     tx.nonceKeys.map(encodeBigint),
+@@ -148,8 +162,8 @@ export function encodeFrameTx(tx: FrameTransaction): Uint8Array {
+     tx.signatures.map(encodeSignature),
+     encodeFees(tx.fees),
+     tx.blobVersionedHashes.map((h) => toBytes(h)),
+-    tx.recentRootReferences.map(encodeRecentRootReference),
+   ];
++  if (recentRootsField) structure.push(tx.recentRootReferences.map(encodeRecentRootReference));
+   return RLP.encode(structure);
+ }
+ 
+@@ -181,7 +195,7 @@ export function decodeFrameTx(bytes: Uint8Array): FrameTransaction {
+     signatures: asList(signatures).map(decodeSignature),
+     fees: decodeFees(fees),
+     blobVersionedHashes: asList(blobVersionedHashes).map((h) => decodeHex(asBytes(h))),
+-    recentRootReferences: asList(recentRootReferences).map(
++    recentRootReferences: (recentRootReferences === undefined ? [] : asList(recentRootReferences)).map(
+       decodeRecentRootReference
+     ),
+   };
+diff --git a/packages/executor/src/services/FrameTxSimulationService/index.ts b/packages/executor/src/services/FrameTxSimulationService/index.ts
+index 35be2b8..f1acbf1 100644
+--- a/packages/executor/src/services/FrameTxSimulationService/index.ts
++++ b/packages/executor/src/services/FrameTxSimulationService/index.ts
+@@ -32,6 +32,7 @@ import { encodeRawFrameTx } from "../FrameTxService/codec.js";
+ import { EXPLORER_RULES } from "@skandha/types/lib/explorer/index.js";
+ import { CheckCollector } from "../ExplorerService/checkCollector.js";
+ import { GethTracer } from "../UserOpValidation/GethTracer.js";
++import { AdmissionPolicy } from "../AdmissionPolicy/index.js";
+ import {
+   FrameTxValidationResult,
+   FrameTxValidationService,
+@@ -48,19 +49,28 @@ export class FrameTxSimulationService {
+   constructor(
+     publicClient: PublicClient,
+     private frameTxValidationService: FrameTxValidationService,
+-    private logger: Logger
++    private logger: Logger,
++    /** false for a node without ethrex's tracer (see NetworkConfig.traceSimulation). */
++    private trace = true,
++    /** This mempool's own rules, resolved once at startup (NetworkConfig.admissionPolicy). */
++    private policy: Promise<AdmissionPolicy | null> = Promise.resolve(null)
+   ) {
+     this.gethTracer = new GethTracer(publicClient);
+   }
+ 
++  /**
++   * `withPolicy: false` skips the mempool's own admission rules, for gas estimation of a partial
++   * or unsigned transaction.
++   */
+   async simulate(
+     tx: FrameTransaction,
+-    collector?: CheckCollector
++    collector?: CheckCollector,
++    withPolicy = true
+   ): Promise<FrameTxSimulateAndValidateResult> {
+     const rawTx = encodeRawFrameTx(tx);
+ 
+     const result = await this.gethTracer
+-      .simulateFrameTransaction(rawTx, true)
++      .simulateFrameTransaction(rawTx, this.trace)
+       .catch(async (error) => {
+         this.logger.error(error, "ethrex_simulateFrameTransaction failed");
+         // ethrex answered with a JSON-RPC error (viem's RpcRequestError
+@@ -88,6 +98,12 @@ export class FrameTxSimulationService {
+         throw new Error(message);
+       });
+ 
++    // An untraced node gives one synthesized entry (see GethTracer's untracedResult): one per frame.
++    if (!this.trace && result.frames && result.frames.length !== tx.frames.length) {
++      const only = result.frames[0];
++      result.frames = tx.frames.map(() => only);
++    }
++
+     // Mapped and handed to the collector as soon as the trace is known, so a
+     // transaction rejected by `validate()` below (which reads the very same
+     // `result`) still leaves its per-frame receipts on the collector for the
+@@ -147,6 +163,18 @@ export class FrameTxSimulationService {
+       );
+     }
+ 
++    const policy = withPolicy ? await this.policy : null;
++    if (policy) {
++      try {
++        await policy.check(tx, rawTx);
++      } catch (err) {
++        const reason = err instanceof Error ? err.message : String(err);
++        collector?.fail(EXPLORER_RULES.POLICY, `${policy.name}: ${reason}`);
++        throw new RpcError(`${policy.name}: ${reason}`, RpcErrorCodes.VALIDATION_FAILED);
++      }
++      collector?.pass(EXPLORER_RULES.POLICY);
++    }
++
+     const simulation: FrameTxSimulationResult = {
+       cumulativeGasUsed: result.gasUsed,
+       payer: result.payer,
+diff --git a/packages/executor/src/services/UserOpValidation/GethTracer.ts b/packages/executor/src/services/UserOpValidation/GethTracer.ts
+index 5b2b065..8856a0f 100644
+--- a/packages/executor/src/services/UserOpValidation/GethTracer.ts
++++ b/packages/executor/src/services/UserOpValidation/GethTracer.ts
+@@ -35,12 +35,38 @@ export class GethTracer {
+     trace: boolean,
+     block?: string
+   ): Promise<EthrexSimulateFrameTransactionResult> {
++    // A node without the tracer (plain ethrex hegota builds) takes only [rawTx, block].
+     const payload = {
+       method: "ethrex_simulateFrameTransaction" as any,
+-      params: [rawTx, block ?? "latest", { trace }],
++      params: trace ? [rawTx, block ?? "latest", { trace }] : [rawTx, block ?? "latest"],
+     };
+-    return (await this.publicClient.request(
+-      payload as any
+-    )) as EthrexSimulateFrameTransactionResult;
++    const result = (await this.publicClient.request(payload as any)) as any;
++    return trace ? (result as EthrexSimulateFrameTransactionResult) : untracedResult(result);
+   }
+ }
++
++/**
++ * Plain (pre-tracer) ethrex hegota nodes answer with `valid`/`violation` instead of
++ * `canonicalMempoolValid`/`canonicalMempoolViolation`, and without per-frame results. Maps such an
++ * answer onto the tracer's shape. Per-frame entries are synthesized from the overall outcome (each
++ * frame shares the transaction's status, with no per-frame gas); the total `gasUsed` stays exact.
++ */
++function untracedResult(r: any): EthrexSimulateFrameTransactionResult {
++  const executed = r.gasUsed != null && r.executionStatus != null;
++  const frameCount = typeof r.frameCount === "number" ? r.frameCount : 0;
++  return {
++    ...r,
++    canonicalMempoolValid: r.canonicalMempoolValid ?? r.valid ?? false,
++    canonicalMempoolViolation: r.canonicalMempoolViolation ?? r.violation ?? null,
++    frames:
++      r.frames ??
++      (executed
++        ? Array.from({ length: Math.max(frameCount, 1) }, () => ({
++            gasUsed: "0x0",
++            succeeded: r.executionStatus === "success",
++          }))
++        : null),
++    erc7562Trace: null,
++    erc7562TraceError: null,
++  } as EthrexSimulateFrameTransactionResult;
++}
+diff --git a/packages/executor/src/services/UserOpValidation/utils/validationPrefix.ts b/packages/executor/src/services/UserOpValidation/utils/validationPrefix.ts
+index 8a34f88..ace43a2 100644
+--- a/packages/executor/src/services/UserOpValidation/utils/validationPrefix.ts
++++ b/packages/executor/src/services/UserOpValidation/utils/validationPrefix.ts
+@@ -247,7 +247,11 @@ export type StructuralRulesResult = { valid: true } | { valid: false; reason: st
+  * rejection condition on the transaction's validity — it doesn't reject
+  * anything, so it is intentionally not implemented here.
+  */
+-export function validateStructuralRules(tx: FrameTransaction, prefix: ValidationPrefixMatch): StructuralRulesResult {
++export function validateStructuralRules(
++  tx: FrameTransaction,
++  prefix: ValidationPrefixMatch,
++  maxVerifyGas: bigint = MAX_VERIFY_GAS
++): StructuralRulesResult {
+   const prefixFrameIndices = prefix.frames.map((f) => f.frameIndex);
+   const lastPrefixIndex = Math.max(...prefixFrameIndices);
+ 
+@@ -285,10 +289,10 @@ export function validateStructuralRules(tx: FrameTransaction, prefix: Validation
+   // per-scheme cost comes from.
+   const sigCost = signatureVerificationCost(tx);
+   const totalVerifyGas = executionSum + sigCost;
+-  if (totalVerifyGas > MAX_VERIFY_GAS) {
++  if (totalVerifyGas > maxVerifyGas) {
+     return {
+       valid: false,
+-      reason: `validation prefix execution gas sum ${executionSum} + signature-verification cost ${sigCost} = ${totalVerifyGas} exceeds MAX_VERIFY_GAS ${MAX_VERIFY_GAS}`,
++      reason: `validation prefix execution gas sum ${executionSum} + signature-verification cost ${sigCost} = ${totalVerifyGas} exceeds this mempool's validation budget ${maxVerifyGas}`,
+     };
+   }
+   if (stateSum > MAX_VERIFY_STATE_GAS) {
+diff --git a/packages/executor/src/services/UserOpValidation/validators/frameTx.ts b/packages/executor/src/services/UserOpValidation/validators/frameTx.ts
+index ce5ef15..162b7bb 100644
+--- a/packages/executor/src/services/UserOpValidation/validators/frameTx.ts
++++ b/packages/executor/src/services/UserOpValidation/validators/frameTx.ts
+@@ -307,7 +307,7 @@ export class FrameTxValidationService {
+     }
+     collector.pass(EXPLORER_RULES.PREFIX);
+ 
+-    const structural = validateStructuralRules(tx, prefix);
++    const structural = validateStructuralRules(tx, prefix, BigInt(this.networkConfig.maxVerifyGas));
+     if (!structural.valid) {
+       throw collector.failed(
+         EXPLORER_RULES.STRUCTURE,
+@@ -377,6 +377,10 @@ export class FrameTxValidationService {
+     // `canonicalMempoolViolation` (a structural/gas-cap rejection - more
+     // specific, since it means tracing was never even attempted) and
+     // `executionError` (a revert during the traced execution pass itself).
++    if (!this.networkConfig.traceSimulation) {
++      return this.validateUntraced(tx, simResult, prefix, collector);
++    }
++
+     if (simResult.erc7562Trace == null) {
+       const reason =
+         (simResult.canonicalMempoolViolation != null
+@@ -455,6 +459,65 @@ export class FrameTxValidationService {
+     };
+   }
+ 
++  /**
++   * Admission without an ERC-7562 trace (`NetworkConfig.traceSimulation` false: the node has no
++   * tracer). The opcode and storage rules cannot be checked, so only transactions whose every
++   * validation-prefix entity is whitelisted get this far; the mempool's own admission policy (run
++   * by FrameTxSimulationService right after this) stands in for those rules. The validation prefix
++   * must still have executed and approved: a payer, no execution error before the body.
++   */
++  private async validateUntraced(
++    tx: FrameTransaction,
++    simResult: EthrexSimulateFrameTransactionResult,
++    prefix: ValidationPrefixMatch,
++    collector: CheckCollector
++  ): Promise<FrameTxValidationResult> {
++    if (simResult.gasUsed == null || simResult.payer == null) {
++      const reason =
++        simResult.canonicalMempoolViolation ?? simResult.executionError ?? "the validation prefix did not approve";
++      throw collector.failed(
++        EXPLORER_RULES.SIMULATION,
++        new RpcError(
++          this.describeStructuredFailure(simResult) ??
++            (await this.explainFailure(tx, reason, BigInt(simResult.maxCost))),
++          RpcErrorCodes.VALIDATION_FAILED
++        )
++      );
++    }
++    collector.pass(EXPLORER_RULES.SIMULATION);
++
++    const whitelisted = this.networkConfig.whitelistedEntities;
++    for (const { frame, frameIndex, role } of prefix.frames) {
++      const addr = resolveRoleAddr(role, frame, tx.sender);
++      const list = whitelisted[roleToWhitelistKey[role]] ?? [];
++      const ok = list.some((w) => w.toLowerCase() === addr.toLowerCase());
++      const ctx = { frameIndex, entity: role };
++      if (!ok) {
++        throw collector.failed(
++          EXPLORER_RULES.STORAGE,
++          new RpcError(
++            `${role} ${addr} is not whitelisted, and this node cannot trace validation (traceSimulation off)`,
++            RpcErrorCodes.INVALID_OPCODE
++          ),
++          ctx
++        );
++      }
++      collector.pass(
++        EXPLORER_RULES.STORAGE,
++        ctx,
++        `${addr} whitelisted; the mempool's admission policy applies instead of ERC-7562 tracing`
++      );
++    }
++
++    return {
++      // Membership of this node's own mempool: its policy, not the standard ERC-7562 rules, decides.
++      mempoolMembership: { [this.networkConfig.standardMempoolId]: true },
++      accessedSlots: {},
++      roleStakes: await this.resolveRoleStakes(tx, prefix),
++      maxCost: simResult.maxCost ? BigInt(simResult.maxCost) : estimateMaxCost(tx),
++    };
++  }
++
+   /**
+    * Builds the `{sender?, payer, factory?}`-shaped stake-info map by
+    * looking up each validation-prefix role's resolved address against
+diff --git a/packages/types/src/explorer/index.ts b/packages/types/src/explorer/index.ts
+index e4b4300..38cc4b4 100644
+--- a/packages/types/src/explorer/index.ts
++++ b/packages/types/src/explorer/index.ts
+@@ -31,6 +31,8 @@ export const EXPLORER_RULES = {
+   CODE_ACCESS: "COD-010",
+   ENTRYPOINT_ACCESS: "entrypoint-access",
+   MEMPOOL: "mempool",
++  /** The alternative mempool's own admission rules (NetworkConfig.admissionPolicy). */
++  POLICY: "policy",
+   /** A failure that no other rule claimed (unexpected error). */
+   ADMISSION: "admission",
+ } as const;
+@@ -49,6 +51,7 @@ export const GLOBAL_RULE_ORDER: readonly ExplorerRuleId[] = [
+   EXPLORER_RULES.TRACE_ALIGNMENT,
+   EXPLORER_RULES.NESTED_CALL_VALUE,
+   EXPLORER_RULES.EXECUTION,
++  EXPLORER_RULES.POLICY,
+   EXPLORER_RULES.MEMPOOL,
+ ];
+ 
+diff --git a/packages/types/src/node/frameTx.ts b/packages/types/src/node/frameTx.ts
+index c6d8d63..7dc03e5 100644
+--- a/packages/types/src/node/frameTx.ts
++++ b/packages/types/src/node/frameTx.ts
+@@ -14,6 +14,12 @@ const { Address, Bytes32, UintBn256 } = primitiveSsz;
+ // ==============================
+ 
+ export const MAX_FRAMES = 64;
++/**
++ * Largest frame data gossiped: the chain's own transaction size cap (128 KiB). The shared
++ * MAX_BYTE_ARRAY_SIZE (64,000, an ERC-4337 UserOperation limit) silently dropped frame transactions
++ * whose frames carry more, such as a privacy pool's settle with its ~104 KB proof.
++ */
++export const MAX_FRAME_DATA_SIZE = 131072;
+ // not spec-defined; placeholder pending EIP-8141 confirmation
+ export const MAX_SIGNATURES = 64;
+ // not spec-defined; placeholder pending EIP-8141 confirmation
+@@ -42,7 +48,7 @@ export const Frame = new ContainerType(
+     target: new OptionalType(Address),
+     limits: FrameLimits,
+     value: UintBn256,
+-    data: new ByteListType(MAX_BYTE_ARRAY_SIZE),
++    data: new ByteListType(MAX_FRAME_DATA_SIZE),
+   },
+   { typeName: "Frame", jsonCase: "eth2" }
+ );
