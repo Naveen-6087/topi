@@ -1,0 +1,86 @@
+---
+title: "Run the prover"
+description: "Set up the upstream provers, make client proofs, and run the exit recursion."
+---
+
+`prover/` wraps three upstream projects pinned to the commits the deployed terminal verifier was generated from. The scripts run on Linux; on Windows, run them in WSL.
+
+## Requirements
+
+| | Client proof | Exit proof |
+|---|---|---|
+| Memory | about 450 MB | about 12 GB (add swap if needed) |
+| Time | about 1 s proving, a few seconds wall | about 19 minutes on a laptop (1,150 s measured); 151 s on a 32-vCPU AWS instance |
+| Tools | Rust, git | Rust, git, Python 3, Foundry |
+
+## Set up
+
+```bash
+bash prover/setup.sh
+```
+
+`setup.sh` clones `ethereum/spartan-whir`, `Client-Side-Proving/leanVM` and `ethereum/sol-whir-p3` into `$PROVER_HOME` (default `~/.local/share/pq-prover`), checks out the pinned commits, installs this repository's wallet circuit (`prover/patches/spartan-whir`) into spartan-whir, and builds `pool-wallet` and `leanvm-full-zk-spark-fixture`. It also copies `prover/support/terminal_hashes.py` to the place under `$PROVER_HOME` where sol-whir-p3's terminal fixture codec imports it from; fresh installs failed without it. It is safe to re-run.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PROVER_HOME` | `~/.local/share/pq-prover` | Where upstream repositories are cloned and built |
+| `PROVER_THREADS` | all cores | Worker threads (`RAYON_NUM_THREADS`) |
+
+`prover/env.sh` holds the pinned commits and is sourced by every script; a `.env` at the repository root is loaded first.
+
+## The wallet tool
+
+```text
+pool-wallet keygen OUT.json
+pool-wallet witness NOTE.json CHAIN.json REQUEST.json OUT.json
+pool-wallet check FIELDS.json FIXTURE_DIR
+```
+
+| Command | Does |
+|---|---|
+| `keygen` | Fresh note secrets: `nullifier`, `secret`, `precommitment` (the value passed to `deposit`) |
+| `witness` | Builds the prover input from the note (keygen output plus `amount`, `label`, `leaf_index`, `label_index` from the `Deposited` event), the chain view (`pool`, `scope`, `pool_leaves`, `association_leaves`, `pool_root`, `association_root`) and the request (`recipient`, `withdrawn`, `fee`, `fee_recipient`, `change_note`). Writes `public.fields`, the 82 settle fields, along with the transaction digest, nullifier hash and change commitment. |
+| `check` | Confirms that 82 fields hash to the public input recorded in a client proof; the exit runs it before proving |
+
+## Client proof
+
+```bash
+bash prover/prove-client.sh input.json spend.tgz
+```
+
+Runs `leanvm-full-zk-spark-fixture --circuit privacy-pools-lean --input input.json` and packs the proof directory as a `.tar.gz`.
+
+## Exit proof
+
+```bash
+bash prover/prove-exit.sh a.tgz b.tgz out/
+```
+
+1. Unpacks both client proofs.
+2. Runs leanVM's `run_terminal_fixture.py` with the grouped terminal profile: verifies both proofs, lifts and recurses to one root proof.
+3. Generates the calldata for `verifyGroupedLogupV1` with sol-whir-p3's fixture generator and writes `out/calldata.bin`.
+4. Compares the proof's guest program hashes with `contracts/test/fixtures/terminal/manifest.json`. It exits with status 3 if they differ, because the deployed verifier would reject the proof.
+
+Pass `out/calldata.bin` as `proofCall` to `settle`; see [Make a private payment](/guides/private-payment).
+
+### On AWS
+
+A laptop needs about 19 minutes and 12 GB for one exit proof. `infra/aws/prover.sh` runs the same `prove-exit.sh` on one `c7i.8xlarge` spot instance (32 vCPU, 64 GiB), about 0.47 USD per hour:
+
+```bash
+bash infra/aws/prover.sh up && bash infra/aws/prover.sh setup   # setup: about 6 minutes, once per instance
+bash infra/aws/prover.sh prove a.tgz b.tgz out/                 # writes out/calldata.bin locally
+bash infra/aws/prover.sh down
+```
+
+`EXIT_PROVER=aws` in `.env` makes the console and `scripts/exit-prover.ts` use it. See [Deploy to AWS](/guides/aws#exit-prover).
+
+## Pinned commits
+
+| Repository | Commit |
+|---|---|
+| `ethereum/spartan-whir` | `14d6da4211eda59e65cfd0af5e2dcd89d523edc3` |
+| `Client-Side-Proving/leanVM` | `fb0909d0dc3ab4cffd1910c065998effd44a5ee3` |
+| `ethereum/sol-whir-p3` | `b82359ec98e1e3c9f6f39ebf984e7aefb0eeb9be` |
+
+Changing any of them changes the guest programs, which requires generating and deploying a new terminal verifier.
