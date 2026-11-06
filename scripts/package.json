@@ -1,0 +1,16 @@
+{
+  "name": "@topi/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Operational scripts for the shielded pool, built on @topi/sdk",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@topi/sdk": "0.1.0"
+  }
+}
