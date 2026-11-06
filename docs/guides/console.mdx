@@ -1,0 +1,71 @@
+---
+title: "Use the console"
+description: "The topi terminal: a post-quantum wallet, the mixnet on a world map, the exit prover, the alt mempool and the chain."
+---
+
+`topi` is a terminal interface over the whole system. Every action runs a real command (the same scripts and binaries documented elsewhere), and its output streams into a jobs pane.
+
+## Install
+
+```bash
+cargo install --locked --git https://github.com/Naveen-6087/topi topi-tui topi-mixnet   # topi, topi-node, topi-client
+topi                     # opens on the Wallet tab, from any folder
+topi map                 # opens on a tab: wallet, map or chain
+```
+
+The repository is private, so the `--git` install needs access to it. From a checkout:
+
+```bash
+cargo install --path crates/console && cargo install --path crates/mixnet
+```
+
+The release workflow (`.github/workflows/release.yml`) builds `topi`, `topi-node` and `topi-client` for Linux, macOS and Windows on a `v*` tag. No release has been published yet.
+
+## Runtime files
+
+`topi` embeds what it runs besides its own code: the prover scripts, the alt mempool sidecar's setup, patch, rules and admission policy, the TypeScript SDK sources they import, the AWS scripts, the deployment records and the contracts' bytecode. Inside a checkout it uses the checkout. Elsewhere it unpacks them into `~/.topi` (or `TOPI_HOME`) and keeps its data and keys there. `TOPI_BUNDLED=1` forces the unpacked copy. Settings come from `.env` in that root.
+
+It drives these external tools:
+
+| Tool | Used for |
+|---|---|
+| WSL (Windows only) | the prover and the alt mempool sidecar, which run on Linux |
+| Bun | the alt mempool sidecar |
+| `lsk` (`LSK_BIN`) | leanSPHINCS signing |
+| AWS CLI and Terraform | the cloud mixnet and the AWS exit prover |
+
+## Tabs
+
+| Tab | Shows |
+|---|---|
+| 1 Wallet | Accounts, notes and the stage each has reached (new, deposited, witnessed, proven, sent), and the exit prover |
+| 2 Mixnet map | A world map of the nodes, packets in flight, per-node counters. Four local nodes, or the AWS regions Mumbai, Frankfurt, N. Virginia and Singapore |
+| 3 Chain | Latest block, pool, paymaster and PQ account balances, the pool's deposits and settles |
+
+## Common workflows
+
+<Tabs>
+  <Tab title="Full demo">
+    On the Wallet tab press `F` to fund the demo accounts, then `D`. `D` funds first, creates an account if there is none, starts the local mixnet, makes two notes, deposits, witnesses, proves and sends both through the mixnet, then runs the exit prover to settle them (through the alt mempool when it runs). It takes about 216 to 301 s with `EXIT_PROVER=aws`, and about 20 minutes with the prover on a laptop.
+  </Tab>
+  <Tab title="Step by step">
+    On the Wallet tab: `c` creates an account, `n` a note; select a note with the arrow keys, then `d` deposit, `w` witness, `p` prove, `s` send. `m` starts the alt mempool, and `r` runs the exit prover and settles (asks for confirmation).
+  </Tab>
+  <Tab title="Local network">
+    On the Mixnet map tab press `l` to start four local nodes, `p` to send a ping, and `k` to stop them.
+  </Tab>
+</Tabs>
+
+`F` tops the depositing key and the paymaster up to 0.04 ETH, from the console's accounts and the leanSPHINCS account.
+
+## Alt mempool
+
+`m` starts two nodes of the topi privacy-pool mempool, which gossip with each other (through WSL on Windows). `r` and `D` then submit settles to them; a settle sent to the first node reaches the second by gossip, and both relay it. `e` opens explorer.altmempool.wtf on the local node, with every admission rule's verdict. See [Alternative mempool](/architecture/alt-mempool).
+
+## Exit prover on AWS
+
+With `EXIT_PROVER=aws` in `.env`, `r` and `D` run the recursion on one `c7i.8xlarge` spot instance instead of the local machine. Start it with `bash infra/aws/prover.sh up` and `setup` first. See [Deploy to AWS](/guides/aws#exit-prover).
+
+Destructive or long-running actions ask for confirmation; press `y` to proceed and any other key to cancel. Quitting stops the local nodes and the mempool.
+
+The full key list is in [Console keys](/reference/console-keys).

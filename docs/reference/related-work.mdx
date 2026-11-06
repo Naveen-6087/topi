@@ -1,0 +1,36 @@
+---
+title: "Related work"
+description: "Projects Topi builds on or compares with."
+---
+
+## Building blocks
+
+| Project | Used for |
+|---|---|
+| [ethereum/spartan-whir](https://github.com/ethereum/spartan-whir) | Client proofs of the privacy-pools withdrawal relation |
+| [Client-Side-Proving/leanVM](https://github.com/Client-Side-Proving/leanVM) | Recursion of two client proofs to a terminal proof |
+| [ethereum/sol-whir-p3](https://github.com/ethereum/sol-whir-p3) | The generated Solidity terminal verifier and Poseidon1 |
+| [binius-zk/binius64](https://github.com/binius-zk/binius64) | Zero-knowledge epoch tickets for rate limiting |
+| [nconsigny/SPHINCS-](https://github.com/nconsigny/SPHINCS-) | leanSPHINCS signer, on-chain verifier and the PQ frame account |
+| soispoke/minimal-shielded-pool | Frame transaction conventions on chain 8141; the SDK's frame encoding derives from it |
+| Privacy Pools | The withdrawal relation with association sets |
+
+## Comparable projects
+
+### ethereum/EthLib
+
+A library of Ethereum cryptographic primitives in Lean, including leanXMSS, a stateful hash-based signature scheme. It targets verified implementations of primitives; Topi's Lean work instead models the pool's validation policy and settle state machine and checks the model against the chain. Both point toward machine-checked post-quantum signature verification for Ethereum.
+
+### EthereumPhone/PQ1
+
+A hardware wallet design that signs with SPHINCS+ (the C10 parameter set) and validates through an ERC-4337 smart account. Topi takes the same approach of hash-based signatures checked in account code, but on EIP-8141 frame transactions, where the signature travels in an `ARBITRARY` entry and covers the whole transaction, and it applies it to the paymaster that pays for private spends as well as to user accounts.
+
+### HOPR
+
+A production mixnet (hoprnet) using elliptic-curve Sphinx packets and proof-of-relay incentives. Topi's mixnet replaces the per-hop key exchange with an X-Wing encapsulation per hop to be post-quantum, uses zero-knowledge rate limiting instead of payments for admission, and is specialised to carrying proofs to an exit prover. It has no incentive layer.
+
+## Future work
+
+### EIP-8288
+
+An extension of frame transactions under discussion, not live on chain 8141. It would let a transaction depend on a proof verified once by the protocol rather than in contract code. For Topi this could replace the roughly 10M-gas terminal verification inside `settle` with a much cheaper dependency, leaving room for more spends per transaction.

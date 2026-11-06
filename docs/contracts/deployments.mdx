@@ -1,0 +1,89 @@
+---
+title: "Deployments"
+description: "Contract addresses on chain 8141 and on the ERC-8421 devnet (chain 1337)."
+---
+
+Unless a section says otherwise, addresses are on chain `8141` (RPC `https://rpc1.privacy.ethrex.xyz`, explorer [dora.privacy.ethrex.xyz](https://dora.privacy.ethrex.xyz)). The machine-readable records are in `deployments/8141/`.
+
+## Shared contracts
+
+| Contract | Address |
+|---|---|
+| Terminal verifier (both pools) | `0xee208be69B5C43eB3E3fb266aFa6a99155475d86` |
+| leanSPHINCS verifier | `0xBf2BAD3E537A818B43a8885Ff6878139B4476bd4` |
+
+## Current pool (`pool.json`)
+
+Post-quantum: the paymaster checks the exit operator's leanSPHINCS witness.
+
+| Contract | Address |
+|---|---|
+| PoolAccount (transaction sender for settles) | `0x66268c9e7735f331c48c30eecf2fe2e76b80a9d7` |
+| ShieldedPool (logic) | `0x42af9F4622298b347Ea332637b5Ed83E6C9b6868` |
+| PQPaymaster | `0x4df9fe3b7054685f6faf7c5deb5392d527035c62` |
+| Operator (fee recipient) | `0x28Ca5A65213834f97e17707467337fBcf856E08d` |
+
+| Field | Value |
+|---|---|
+| `testbed` | `false` |
+| `exitPkSeed` | `0x39bdef0873c86f3daaf01be49203cbcb00000000000000000000000000000000` |
+| `exitPkRoot` | `0xc1a5bef4157c64a76e2bc06cf0d44c2f00000000000000000000000000000000` |
+
+## First pool (`pool-classic.json`)
+
+Classic: the paymaster checks one secp256k1 signature by the operator.
+
+| Contract | Address |
+|---|---|
+| PoolAccount | `0x7e4511800c508da1f2e8f14aa44ff7ee886f5dd9` |
+| ShieldedPool (logic) | `0x844b0548A89BBff8828549CCc7486EB781D0f95b` |
+| ClassicPaymaster | `0x43eedfff7ca990267f12356394535603a02c4d41` |
+| Operator | `0x28Ca5A65213834f97e17707467337fBcf856E08d` |
+
+## PQ account (`account.json`)
+
+| Field | Value |
+|---|---|
+| Account | `0xB6f6Dc5f1139568fB72e34dE4174C9496a6C7872` |
+| Frame module | `0x11e424489e54d29c66ef55270c4b9c344da3b58e` |
+| Verifier | `0xBf2BAD3E537A818B43a8885Ff6878139B4476bd4` |
+| `pkSeed` | `0x8e0ce5201ed170b9a313b2b281e6522000000000000000000000000000000000` |
+| `pkRoot` | `0xe7f197e0f46d7fcd0fd29bd3de62282c00000000000000000000000000000000` |
+| VERIFY selector | `0x82f4ffda` |
+
+## Staking registry (`staking.json`)
+
+| Contract | Address |
+|---|---|
+| NaiveStakingRegistry (`contracts/src/staking/`) | `0xE6F10a5181fE989bb1333fb25C8B912024E2bbf4` |
+
+The alt mempool's sidecar reads entity stakes from it. The deployed pool account and paymaster cannot stake themselves, so the mempool treats them as whitelisted entities. See [Alternative mempool](/architecture/alt-mempool#staking).
+
+## ERC-8421 devnet, chain 1337 (`deployments/1337/pool.json`)
+
+The organizers' alt mempool devnet (RPC `https://altmempool.forshtat.com`). Its 60M block gas limit caps deployable code at about 37 KB, so the terminal verifier (59 KB) and `ShieldedPool` (50 KB) cannot be deployed there. The record pairs the real accounts and leanSPHINCS verifier with `DevnetSettle`, which checks pool and scope and records nullifiers but does not verify the proof.
+
+| Contract | Address |
+|---|---|
+| PoolAccount | `0xec3829caa1beb1116dffed941ce1f27c94a38733` |
+| DevnetSettle (logic) | `0x6BD2Ca250CB0059e92e8f790fB80164F24c47539` |
+| PQPaymaster (validation limit 95,000) | `0x0e65c1b8663d9915d8738c16f01d678331cfbe4b` |
+| leanSPHINCS verifier | `0xcd99ad22dfe9cca16908a0a1551071e8ad82d114` |
+| Operator | `0x28Ca5A65213834f97e17707467337fBcf856E08d` |
+
+The exit key (`exitPkSeed`, `exitPkRoot`) is the same as on chain 8141. `deployments/1337/genesis/` packages the full pool, with the real terminal verifier and `ShieldedPool`, as genesis accounts for the devnet's operators.
+
+## Record format
+
+Each pool record also holds the pool and scope identities (`poolId`, `scope`, eight field elements each) that every spend's first 16 fields must match. Load records with `loadPoolDeployment` and `loadAccountDeployment` from the [SDK](/sdk/pool).
+
+## Settlements of record
+
+| Block | Pool | Notes |
+|---|---|---|
+| 557893 | Current | Two spends carried by the four-region mixnet; leanSPHINCS-signed, PQ paymaster; 16.32M gas |
+| 558272 | Current | Second run; 16.33M gas |
+| 717928, 719307, 720937, 721379 | Current | Submitted through the ERC-8421 alt mempool sidecar |
+| 721480 | Current | Through the alt mempool; node B received it from node A by gossip and passed all 10 checks |
+
+On chain 1337, a post-quantum settle through the organizers' alt mempool was mined in block 8944 (transaction `0x763107bea261cf6add7240d634540da223ba748aeed73458db3b085f5b21a152`) after 24 of 24 admission checks.

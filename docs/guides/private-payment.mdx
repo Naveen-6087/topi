@@ -1,0 +1,132 @@
+---
+title: "Make a private payment end to end"
+description: "Deposit into the pool, prove a withdrawal, send it through the mixnet, and settle it on chain 8141."
+---
+
+This guide follows one note from deposit to settlement. It uses the SDK for chain access, `pool-wallet` and the prover scripts for proofs, and `topi-client` for the mixnet. The exit prover settles two spends at a time, so in practice run the client steps for two notes.
+
+## Before you start
+
+- The prover is set up (`bash prover/setup.sh`); see [Run the prover](/guides/prover). `$WALLET` below is `$PROVER_HOME/spartan-whir/target/release/pool-wallet`.
+- A mixnet is running, locally or on AWS, and you have a registered member identity.
+- A funded PQ account and its leanSPHINCS key, or another account that can call `deposit`.
+- The pool deployment record, `deployments/8141/pool.json`.
+
+<Steps>
+  <Step title="Create note secrets">
+    ```bash
+    $WALLET keygen note.json      # prints the precommitment
+    $WALLET keygen change.json    # secrets for the change note
+    ```
+
+    `note.json` holds `nullifier`, `secret` and `precommitment`. Keep it private: whoever holds it can spend the note.
+  </Step>
+  <Step title="Deposit">
+    Call `deposit(precommitment)` with the amount as value. From a PQ account the call is the SENDER frame of a frame transaction signed with leanSPHINCS:
+
+    ```ts
+    import { readFileSync } from "node:fs";
+    import {
+      LskSigner,
+      RpcClient,
+      depositCalldata,
+      encodeRaw,
+      loadAccountDeployment,
+      loadPoolDeployment,
+      signedAccountTransaction,
+    } from "@topi/sdk";
+
+    const rpc = new RpcClient("https://rpc1.privacy.ethrex.xyz");
+    const pool = loadPoolDeployment("deployments/8141/pool.json");
+    const account = loadAccountDeployment("deployments/8141/account.json");
+    const note = JSON.parse(readFileSync("note.json", "utf8"));
+
+    const tx = await signedAccountTransaction(
+      {
+        account: account.account,
+        verifySelector: account.verifySelector,
+        chainId: await rpc.chainId(),
+        fees: await rpc.feeCaps(),
+        call: {
+          target: BigInt(pool.pool),
+          value: 10_000_000_000_000_000n, // 0.01 ETH
+          data: depositCalldata(note.precommitment),
+          gasLimit: 8_000_000n,
+          stateLimit: 5_000_000n,
+        },
+      },
+      new LskSigner({ binary: process.env.LSK_BIN!, keyFile: process.env.PQ_KEY_FILE! }),
+    );
+    const receipt = await rpc.waitForReceipt(await rpc.sendRawTransaction(encodeRaw(tx)));
+    ```
+
+    The `Deposited` event in the receipt gives the note's `index` (its label index), `leafIndex`, `label` and `amount`. Add them to `note.json` as `label_index`, `leaf_index`, `label` and `amount`.
+  </Step>
+  <Step title="Build the witness">
+    Rebuild both trees from the pool's events and write the chain view:
+
+    ```ts
+    import { writeFileSync } from "node:fs";
+    import { PoolReader } from "@topi/sdk";
+
+    const view = await new PoolReader(rpc, pool.pool).chainView(pool);
+    writeFileSync("chain.json", JSON.stringify(view));
+    ```
+
+    Write the withdrawal request, `request.json`: `recipient`, `withdrawn`, `fee`, `fee_recipient` (the exit operator, which the exit prover requires) and `change_note` (the contents of `change.json`). Then:
+
+    ```bash
+    $WALLET witness note.json chain.json request.json input.json
+    node -e 'const w = require("./input.json"); console.log(JSON.stringify({ fields: w.public.fields }))' > public.json
+    ```
+
+    `pool-wallet` checks that the roots it rebuilt equal the chain's. `public.json` holds the 82 public settle fields.
+  </Step>
+  <Step title="Prove">
+    ```bash
+    bash prover/prove-client.sh input.json spend.tgz
+    ```
+
+    About one second of proving and 450 MB of memory. `spend.tgz` is about 1.3 MB.
+  </Step>
+  <Step title="Send through the mixnet">
+    ```bash
+    topi-client spend --topology topology.json --identity member.id \
+      --proof spend.tgz --public public.json
+    ```
+
+    The client splits the spend into about 280 packets on one rate-limit token and waits for the exit's acknowledgement, `{"ok": true, "queued": "<id>", ...}`. It exits with status 2 if the exit refuses the spend.
+  </Step>
+  <Step title="Prove and settle at the exit">
+    The exit operator collects the queue (on AWS: `bash infra/aws/deploy.sh fetch-queue`) and, for each pair of spends:
+
+    1. checks each spend's fields against the deployment (`checkSpendFields`) and the chain (`PoolReader.checkSpendState`), and that the fields match the proof's statement (`pool-wallet check public.json PROOF_DIR`);
+    2. runs `bash prover/prove-exit.sh a.tgz b.tgz out/`, which writes `out/calldata.bin`;
+    3. builds, signs and sends the settle transaction:
+
+    ```ts
+    import { buildSettleTransaction, signSettleTransaction } from "@topi/sdk";
+
+    // fieldsA, fieldsB: the two spends' 82 fields (the queued .json headers)
+    // exitSigner: a PQSigner for the exit operator's leanSPHINCS key
+    const tx = buildSettleTransaction({
+      deployment: pool,
+      chainId: await rpc.chainId(),
+      fees: await rpc.feeCaps(),
+      proofCall: readFileSync("out/calldata.bin"),
+      fields: [fieldsA, fieldsB],
+    });
+    await signSettleTransaction(tx, pool, { pqSigner: exitSigner });
+    const sim = await rpc.simulateFrameTransaction(encodeRaw(tx));
+    if (!sim.valid) throw new Error(sim.violation ?? "invalid");
+    const hash = await rpc.sendRawTransaction(encodeRaw(tx));
+    ```
+  </Step>
+  <Step title="Confirm">
+    The receipt contains `Settled(leafIndex, nullifierA, nullifierB, changeA, changeB, poolRoot)`. The recipient has received `withdrawn`, the exit `fee`, and the change note is a new pool leaf that `pool-wallet witness` can spend later against the new root. Look the transaction up on [dora.privacy.ethrex.xyz](https://dora.privacy.ethrex.xyz).
+  </Step>
+</Steps>
+
+<Note>
+`scripts/` contains ready-made versions of these steps (wallet, exit prover, settle, demo), and the console's Wallet tab runs them with one key per step; `D` runs them all. The exit prover and `scripts/settle.ts` can submit the settle to the ERC-8421 [alt mempool](/architecture/alt-mempool) instead of the chain's RPC (`--mempool URL` or `MEMPOOL_URL`).
+</Note>

@@ -1,0 +1,44 @@
+---
+title: "Console keys"
+description: "Every key binding of the topi terminal console."
+---
+
+## Global
+
+| Key | Action |
+|---|---|
+| `←` / `→`, `Tab` / `Shift+Tab` | Previous or next tab |
+| `1` to `3` | Jump to a tab |
+| `j` | Show or hide the jobs pane (it opens by itself when a job starts) |
+| `[` / `]` | Select the previous or next job in the jobs pane |
+| `PgUp` / `PgDn` | Scroll the selected job's output |
+| `End` | Follow the selected job's output |
+| `x` | Stop the selected job |
+| `o` | Open the website in the browser (on the Chain tab: the chain's explorer) |
+| `g` | Open the GitHub repository in the browser |
+| `y` | Confirm a pending action (any other key cancels) |
+| `q`, `Esc`, `Ctrl+C` | Quit; local nodes and the alt mempool started by the console are stopped |
+
+## Per tab
+
+| Tab | Key | Action |
+|---|---|---|
+| 1 Wallet | `↑` / `↓` | Select a note |
+| | `c` | Create a leanSPHINCS account |
+| | `a` | Switch to the next account |
+| | `X` | Delete the active account and its secrets (asks for confirmation) |
+| | `n` | New note |
+| | `d` | Deposit from the PQ account (asks for the amount) |
+| | `w` | Build the witness (asks for the recipient) |
+| | `p` | Prove |
+| | `s` | Send through the mixnet |
+| | `m` | Start the alt mempool: two sidecar nodes that gossip |
+| | `r` | Run the exit prover: pair, recurse, settle (asks for confirmation); on AWS with `EXIT_PROVER=aws` |
+| | `e` | Open the mempool explorer (explorer.altmempool.wtf) on the local sidecar, or on the devnet's node when none runs |
+| | `F` | Fund: top the depositing key and the paymaster up to 0.04 ETH from the console's accounts and the PQ account |
+| | `D` | Full demo: fund, account, two notes, deposits, witnesses, proofs, mixnet sends, exit prover, settle (asks for confirmation) |
+| 2 Mixnet map | `l` | Start a local four-node mixnet |
+| | `k` | Stop the local mixnet |
+| | `p` | Ping round trip |
+| | `z` | Zoom the map |
+| 3 Chain | `o` | Open the chain's explorer (Dora for chain 8141) |

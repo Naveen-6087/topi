@@ -1,0 +1,105 @@
+---
+title: "Interfaces"
+description: "IShieldedPool, ITerminalVerifier and ILeanSphincsVerifier."
+---
+
+The interfaces live in `contracts/src/interfaces/`.
+
+## IShieldedPool
+
+The pool's external interface, reached at the pool account's address. Digests are eight KoalaBear elements packed 32 bits each into one word (element `i` at bits `32i` to `32i + 31`).
+
+```solidity
+interface IShieldedPool {
+    event Deposited(
+        uint256 indexed index,
+        uint256 leafIndex,
+        uint256 note,
+        uint256 label,
+        uint256 amount,
+        uint256 poolRoot,
+        uint256 associationRoot
+    );
+    event Settled(
+        uint256 leafIndex, uint256 nullifierA, uint256 nullifierB, uint256 changeA, uint256 changeB, uint256 poolRoot
+    );
+
+    function initialize() external;
+    function deposit(uint256[8] calldata precommitment) external payable returns (uint256 index);
+    function settle(bytes calldata proofCall, uint256[] calldata a, uint256[] calldata b) external;
+    function testbedSeedRoots(uint256 pool, uint256 association) external;
+
+    function terminal() external view returns (address);
+    function operator() external view returns (address);
+    function testbed() external view returns (bool);
+    function poolId() external view returns (uint256);
+    function scope() external view returns (uint256);
+    function initialized() external view returns (bool);
+    function knownPoolRoot(uint256 root) external view returns (bool);
+    function knownAssociationRoot(uint256 root) external view returns (bool);
+    function spent(uint256 nullifier) external view returns (bool);
+    function deposits() external view returns (uint256);
+    function poolRoot() external view returns (uint256);
+    function associationRoot() external view returns (uint256);
+    function nextPoolIndex() external view returns (uint256);
+}
+```
+
+| Function | Behaviour |
+|---|---|
+| `deposit` | Takes a nonzero value below 2^128 and a precommitment; inserts `[note, 0]` into the pool tree and the label into the association tree; returns the deposit index |
+| `settle` | Callable only by the pool itself (a SENDER frame). Verifies the terminal proof, binds it to both spends, checks pool, scope, roots and nullifiers, pays out, inserts both change notes |
+| `testbedSeedRoots` | Testbed pools only, operator only: marks roots as known |
+| `initialize` | Records the empty roots; called once by the pool account's initcode |
+
+### Errors
+
+| Error | Raised when |
+|---|---|
+| `AlreadyInitialized` | `initialize` is called twice |
+| `BadAmount` | The deposit value is zero or at least 2^128 |
+| `NonCanonical` | A field element is not below the modulus, a limb is out of range, or a spend does not have 82 fields |
+| `NotPool` | `settle` is called by anyone but the pool |
+| `WrongSelector` | `proofCall` does not start with `verifyGroupedLogupV1` |
+| `ProofRejected` | The terminal verifier did not return `true` |
+| `RootMismatch` | The proof's application root does not match the two spends |
+| `WrongPool` | A spend's pool or scope identity is not this pool's |
+| `UnknownRoot` | A spend's pool or association root was never a root of this pool |
+| `AlreadySpent` | A nullifier was spent before |
+| `NotTestbed` | `testbedSeedRoots` on a production pool, or by a non-operator |
+| `BadContext` | The fee recipient context is malformed |
+| `PayoutFailed` | A payout transfer failed |
+
+## ITerminalVerifier
+
+```solidity
+interface ITerminalVerifier {
+    struct Proof {
+        bytes transcript;
+        bytes openings;
+        uint256[8] applicationRoot;
+        uint256[] sparkPoint;
+        uint256 sparkValue;
+        uint256[] liftPoint;
+        uint256 liftValue;
+        uint256 rootValue;
+    }
+
+    function verifyGroupedLogupV1(Proof calldata proof) external view returns (bool);
+}
+```
+
+Selector `0x5801ce09`. `ShieldedPool` forwards the caller's calldata verbatim and then reads `applicationRoot` at calldata offset 100 (after the selector and the tuple, transcript and openings offsets), so this struct layout is part of the pool's interface.
+
+## ILeanSphincsVerifier
+
+```solidity
+interface ILeanSphincsVerifier {
+    function verify(bytes32 pkSeed, bytes32 pkRoot, bytes32 message, bytes calldata sig)
+        external
+        view
+        returns (bool);
+}
+```
+
+Selector `0x2bf6eda8`. Returns `true` if `sig` (5,684 bytes) is a valid leanSPHINCS signature of `message` under (`pkSeed`, `pkRoot`). `PQPaymaster` calls it with `STATICCALL`; the PQ account uses the same shared verifier.

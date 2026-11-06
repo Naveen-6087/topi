@@ -1,0 +1,45 @@
+---
+title: "Glossary"
+description: "Terms used across the Topi documentation."
+---
+
+| Term | Meaning |
+|---|---|
+| Application root | The value a terminal proof commits to: a Poseidon1 hash of its two statement digests. `settle` recomputes it from the spends' fields. |
+| `ARBITRARY` entry | An EIP-8141 signature entry (scheme 0) with an empty signer whose bytes are checked by a VERIFY frame. Topi puts leanSPHINCS witnesses in them. |
+| Association tree | A Merkle tree of deposit labels; a withdrawal proves its label is in it. Every deposit is associated in this version. |
+| Batch | The packets a mix collects during one batch interval and releases together, shuffled. |
+| Client proof | The wallet's Spartan-WHIR zero-knowledge proof for one spend. |
+| Context | The spend fields that commit to the fee recipient. |
+| Continuation budget | The number of further packets (512) a message may send on the token value its first packet spent. |
+| Cover traffic | Empty packets the gateway sends along the forward route, indistinguishable from real ones until the exit. |
+| Epoch | The rate-limit period, 600 seconds. |
+| Epoch ticket | A member's zero-knowledge proof, once per epoch, that it is registered and committed to a token root. |
+| Exit | The last forward hop. It reassembles messages, answers pings and queues spends. |
+| Exit prover | The operator process that checks queued spends, pairs them, runs the recursion and settles. |
+| Frame transaction | An EIP-8141 transaction (type `0x06`): a list of frames run in order, with account-defined validation. |
+| Gateway | The first hop. It admits packets with rate-limit tokens, hosts the reply store and emits cover traffic. |
+| KoalaBear | The prime field `p = 2^31 - 2^24 + 1 = 2,130,706,433` used by the proofs and the pool's hashes. |
+| Lean statement | A client proof statement whose only public input is the 8-element transaction digest. |
+| leanSPHINCS | A stateless hash-based signature scheme; 5,684-byte signatures. |
+| Member | A holder of a registered rate-limit identity, listed in the topology. |
+| Mix | The second hop. It batches and shuffles packets. |
+| Nonce key | An EIP-8250 nonce lane. Each settle uses a fresh random 128-bit key. |
+| Note | A pool commitment to an amount, a label and a precommitment. |
+| Nullifier | A value derived from a note's secret, published when it is spent; the pool records it to stop a second spend. |
+| Paymaster | An account whose VERIFY frame approves paying for a transaction. |
+| Precommitment | `hash_fields(PRECOMMIT, nullifier \|\| secret)`, passed to `deposit`. |
+| Recursion | Verifying proofs inside another proof; leanVM aggregates two client proofs into one terminal proof. |
+| Reply relay | The first hop of the reply path. |
+| Reply store | The gateway service where replies wait under a slot until the client fetches them. |
+| SENDER frame | A frame that runs as the transaction's sender after execution was approved. |
+| Settle | The pool function, and the transaction, that verifies a terminal proof and spends two notes. |
+| Sphinx | A packet format for mixnets with fixed-size, unlinkable layers. Topi's variant uses a KEM per hop. |
+| Spend | One withdrawal: a client proof and its 82 public fields. |
+| Spend queue | The exit's on-disk directory of received spends. |
+| SURB | Single-use reply block: a pre-built reply header the sender includes so the exit can answer without knowing who the sender is. |
+| Terminal proof | The recursion's final proof, checked on chain by the generated WHIR verifier. |
+| Token | A 164-byte proof that a packet uses one of a member's `L` slots this epoch. |
+| Topology | The shared JSON file listing nodes, keys, ports and members. |
+| VERIFY frame | A frame that runs validation code and may approve execution, payment or both. |
+| X-Wing | A hybrid key encapsulation mechanism combining ML-KEM-768 and X25519. |

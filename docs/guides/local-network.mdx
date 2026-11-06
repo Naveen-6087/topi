@@ -1,0 +1,117 @@
+---
+title: "Run a local network"
+description: "Run all four mixnet roles on one machine, inspect them, and submit a test spend."
+---
+
+A local network is four `topi-node` processes on `127.0.0.1`. It behaves like the cloud deployment, including rate limiting, batching, cover traffic and SURB replies.
+
+The quickest way is the console: on the Mixnet map tab, `l` starts four local nodes and `k` stops them. The steps below do the same by hand.
+
+## Set up
+
+<Steps>
+  <Step title="Build">
+    ```bash
+    cargo build --release -p topi-mixnet
+    export PATH="$PWD/target/release:$PATH"
+    NET=run/local && mkdir -p $NET/keys
+    ```
+  </Step>
+  <Step title="Register members">
+    Every sender needs a member identity. Register one per client; the topology fixes the member list, so register before writing it.
+
+    ```bash
+    topi-client register --identity $NET/member.id --members $NET/members.txt
+    ```
+  </Step>
+  <Step title="Keys and topology">
+    ```bash
+    for r in gateway mix exit reply-relay; do topi-node keygen $NET/keys/$r.key; done
+    topi-node topology $NET/topology.json --members $NET/members.txt --keys $NET/keys \
+      --hosts 127.0.0.1 127.0.0.1 127.0.0.1 127.0.0.1
+    ```
+
+    `keygen` prints each node's public key. The topology assigns default ports: 47101 to 47104 for the nodes, 47201 for the rate limiter and 47250 for the reply store, both at the gateway.
+  </Step>
+  <Step title="Run the nodes">
+    Run each in its own terminal, or in the background. Give each a distinct stats port.
+
+    ```bash
+    topi-node run gateway     --topology $NET/topology.json --key $NET/keys/gateway.key     --bind 127.0.0.1 --stats-port 47300
+    topi-node run mix         --topology $NET/topology.json --key $NET/keys/mix.key         --bind 127.0.0.1 --stats-port 47301
+    topi-node run exit        --topology $NET/topology.json --key $NET/keys/exit.key        --bind 127.0.0.1 --stats-port 47302 --spend-queue $NET/spend-queue
+    topi-node run reply-relay --topology $NET/topology.json --key $NET/keys/reply-relay.key --bind 127.0.0.1 --stats-port 47303
+    ```
+
+    Each node prints a line when it starts and log lines for batches, ticket checks, queued spends and rejections.
+  </Step>
+</Steps>
+
+## Ping
+
+```bash
+topi-client ping --topology $NET/topology.json --identity $NET/member.id
+```
+
+The client proves this epoch's rate-limit ticket if it has not yet (state is kept in `member.state` next to the identity), sends one packet, and polls the reply store until the exit's answer arrives.
+
+## Inspect a node
+
+Each stats port returns one JSON document and closes the connection:
+
+```bash
+nc 127.0.0.1 47301
+```
+
+| Field | Meaning |
+|---|---|
+| `role` | `gateway`, `mix`, `exit` or `reply-relay` |
+| `started` | Start time, Unix seconds |
+| `received`, `forwarded` | Packets in and out |
+| `batches`, `last_batch` | Batches released by the mix and the size of the latest |
+| `cover` | Cover packets that reached the exit |
+| `spends` | Spends queued by the exit |
+| `rejected` | Packets or messages refused |
+| `log` | The most recent 40 log lines, newest first, each prefixed with a Unix timestamp |
+
+## Submit a test spend
+
+The exit checks only the framing of a spend: the `pq-spend/v1` tag, a JSON header with exactly 82 fields, and a proof body. A synthetic spend is enough to exercise the path:
+
+```bash
+node -e 'console.log(JSON.stringify({fields: Array.from({length: 82}, (_, i) => i)}))' > $NET/public.json
+head -c 1300000 /dev/urandom > $NET/proof.tgz
+topi-client spend --topology $NET/topology.json --identity $NET/member.id \
+  --proof $NET/proof.tgz --public $NET/public.json
+```
+
+The client reports the packet count on stderr and prints the exit's answer, for example `{"ok":true,"queued":"<id>","bytes":<n>}`. The exit writes `<id>.json` (the header) and `<id>.tgz` (the proof) into its spend queue. The exit prover would reject this spend at its checks, which is the expected outcome for synthetic data.
+
+## Tuning
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--batch-ms` | 1500 | How long the mix collects each batch |
+| `--bind` | `0.0.0.0` | Listen address |
+| `--stats-port` | 47300 | Counters port |
+| `--spend-queue` | `spend-queue` (or `TOPI_SPEND_QUEUE`) | Where the exit writes queued spends |
+
+## Local alt mempool
+
+The settle side has a local counterpart too: two nodes of the ERC-8421 alt mempool, on Linux or in WSL (Bun required). The console's `m` key starts both.
+
+```bash
+bash mempool/sidecar/setup.sh                                          # once: pinned sidecar, patch, build
+bash mempool/sidecar/start.sh --p2p                                    # node A on 47500, gossip on 4337
+bash mempool/sidecar/start.sh --port 47501 --p2p-port 4338 --join 47500   # node B, dials node A
+```
+
+Scripts take `--mempool http://127.0.0.1:47500/rpc` or `MEMPOOL_URL`. See [Alternative mempool](/architecture/alt-mempool).
+
+## Automated test
+
+`crates/mixnet/tests/network.rs` starts all four roles in one process on shifted ports, registers a member, pings, and submits a spend:
+
+```bash
+cargo test --release -p topi-mixnet
+```

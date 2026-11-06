@@ -1,0 +1,86 @@
+---
+title: "Using as a Foundry dependency"
+description: "Import the pool's interfaces and libraries into your own Foundry project."
+---
+
+The contracts are a Foundry library inside the repository's `contracts/` directory, with `forge-std` and `ethereum/sol-whir-p3` as pinned git submodules.
+
+## Install
+
+Install the Topi repository into your project's `lib/` with `forge install` (or as a git submodule), including its submodules:
+
+```bash
+forge install <owner>/<repository>
+git submodule update --init --recursive
+```
+
+## Remappings
+
+Add to `remappings.txt` or `foundry.toml`, adjusting the path to where the library landed under `lib/`:
+
+```text
+shielded-pool/=lib/<repository>/contracts/src/
+sol-whir-p3/=lib/<repository>/contracts/lib/sol-whir-p3/src/
+```
+
+`StatementBinding` imports `LeanVmPoseidon1` from `sol-whir-p3`, so the second remapping is required whenever you use the binding library or the pool logic.
+
+## Compiler settings
+
+Use solc 0.8.28 with via-IR. If you compile `ShieldedPool` or `KoalaPoseidon2x24`, copy the optimizer settings from `contracts/foundry.toml`:
+
+```toml
+[profile.default]
+solc = "0.8.28"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+
+[profile.default.optimizer_details]
+yul = true
+
+[profile.default.optimizer_details.yulDetails]
+stackAllocation = true
+optimizerSteps = "u:fDnTOcmu"
+```
+
+The default via-IR step sequence takes far longer on the unrolled Poseidon2 permutation.
+
+## Examples
+
+Read the pool from another contract:
+
+```solidity
+import { IShieldedPool } from "shielded-pool/interfaces/IShieldedPool.sol";
+
+contract PoolWatcher {
+    IShieldedPool public immutable pool;
+
+    constructor(IShieldedPool pool_) {
+        pool = pool_;
+    }
+
+    function isSpent(uint256 packedNullifier) external view returns (bool) {
+        return pool.spent(packedNullifier);
+    }
+}
+```
+
+Recompute an application root, for example in a test:
+
+```solidity
+import { StatementBinding } from "shielded-pool/StatementBinding.sol";
+
+uint256[8] memory root = StatementBinding.applicationRoot(
+    StatementBinding.leanStatementDigest(txDigestA),
+    StatementBinding.leanStatementDigest(txDigestB)
+);
+```
+
+## Deploying a new pool
+
+A deployment needs, in order: the terminal verifier (or an existing one generated for the same recursion programs), `ShieldedPool` with constructor arguments `(terminal, operator, testbed, poolId, scope)`, the `PoolAccount` initcode from `yul/build/PoolAccount.bin` followed by the logic address as one word, and a paymaster with its initcode arguments. Pool and scope identities can be derived with `deriveIdentity` from the SDK. Fund the paymaster with a plain transfer.
+
+<Warning>
+A pool is bound to one terminal verifier, whose recursion programs are fixed at generation time. Client proofs from a different circuit or upstream commit will not verify against it.
+</Warning>
