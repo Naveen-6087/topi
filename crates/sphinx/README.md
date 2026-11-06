@@ -33,6 +33,13 @@ the Sphinx filler technique, so every hop sees a header of the same size and eve
   checked end to end with a tag at the final hop.
 - The replay set grows with the node's lifetime; key rotation bounds it in a production deployment.
 
+## Deep-Dive Guides
+
+- [**Post-Quantum Cryptography & KEM Explained**](POST_QUANTUM_KEM_EXPLAINED.md): Conceptual deep dive on Shor's algorithm, lattice mathematics (LWE), KEM padlock mechanics, and hybrid X-Wing defense.
+- [**Packet States by Hop**](PACKET_STATES_BY_HOP.md): Byte-by-byte visual breakdown of the 8,192-byte packet at each node.
+- [**Post-Quantum KEM & Hop-by-Hop Routing**](POST_QUANTUM_KEM_HOP_ROUTING.md): Detailed explanation of X-Wing key encapsulation, capsule nesting, and onion peeling.
+- [**MAC in Mixnets**](MAC_IN_MIXNETS.md): Why Message Authentication Codes are essential, tagging attack defenses, and BLAKE3 keyed hashing.
+
 ## Tests and benchmarks
 
 ```bash

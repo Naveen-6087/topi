@@ -1,0 +1,96 @@
+---
+title: "Message and spend formats"
+description: "Packet, payload, fragment, reply, reply store and spend envelope layouts, and the 82 spend fields."
+---
+
+Integers are little-endian unless marked BE (big-endian).
+
+## Packet
+
+Every packet is 8,192 bytes.
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 3,504 | Header: X-Wing ciphertext (1,120), MAC (16), encrypted routing region (2,368) |
+| 3,504 | 4,688 | Payload |
+
+Each decrypted routing entry is 32 bytes: `is_exit u8 | next u16 | delay_ms u32 | zero padding`.
+
+## Payload plaintext
+
+What the final hop recovers after removing every layer:
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 16 | Tag: first 16 bytes of BLAKE3 over the rest of the payload |
+| 16 | 2 | Message length `u16` |
+| 18 | n | Message (a fragment) |
+| 18 + n | rest | Zero padding |
+
+A payload whose tag does not match is rejected. An empty message is cover traffic.
+
+## Fragment
+
+```text
+kind u8 | message id u64 | index u16 | count u16 | has_surb u8 | [reply target u16] | [SURB header, 3,504 bytes] | data
+```
+
+| Field | Meaning |
+|---|---|
+| `kind` | `0` cover, `2` data, `3` ping |
+| `message id` | Random per message; the exit groups fragments by it |
+| `index`, `count` | Position and total number of fragments |
+| `has_surb` | `0` on later fragments; on the first, which carries the SURB header: `1`, or `2` when a 2-byte reply target (the reply relay's node id) precedes it |
+| `data` | Up to 1,150 bytes in the first fragment, 4,656 bytes in each further one |
+
+A message of `len` bytes needs `1 + ceil(max(0, len - 1,150) / 4,656)` fragments.
+
+## Reply
+
+The exit answers on the SURB with the body `message id u64 | JSON`. The client matches the id and parses the JSON. Pings are answered with `{"ok": true, "pong": true}`; unsupported messages with `{"ok": false, "reason": "unsupported message"}`.
+
+## Reply store requests
+
+TCP to the reply store (port 47250), one request per connection:
+
+| Request | Layout | Response |
+|---|---|---|
+| Store | `'P' \| slot u16 \| packet [8192]` | None |
+| Fetch | `'G' \| slot u16` | All packets held for the slot, concatenated; they are removed from the store |
+
+## Rate limiter frames
+
+See [Rate limiting](/architecture/rate-limiting#wire-frames).
+
+## Spend envelope `pq-spend/v1`
+
+A pool spend is a data message whose body is:
+
+```text
+"pq-spend/v1" | header length u32 BE | header JSON | client proof (.tar.gz)
+```
+
+The header is `{"fields": [...]}` with exactly 82 numbers. The exit checks only this framing; on success it writes `<id>.tgz` (the proof) and `<id>.json` (the header) to its spend queue, where `<id>` is 16 random hex digits, and answers `{"ok": true, "queued": "<id>", "bytes": <total>}`. Failures answer `{"ok": false, "reason": ...}` with one of: malformed spend, malformed spend header, wrong field count, or the exit could not queue the spend.
+
+## The 82 spend fields
+
+Each field is a KoalaBear element below `2,130,706,433`. Digests span eight fields.
+
+| Fields | Content | Encoding |
+|---|---|---|
+| 0 to 7 | Pool identity | Digest |
+| 8 to 15 | Scope identity | Digest |
+| 16 to 23 | Context: the fee recipient | Six 28-bit limbs of a 160-bit address, low first, then two zeros |
+| 24 to 33 | Recipient | Ten 16-bit limbs of a 160-bit address, low first |
+| 34 to 41 | Withdrawn amount | Eight 16-bit limbs, low first |
+| 42 to 49 | Fee | Eight 16-bit limbs, low first |
+| 50 to 57 | Pool root | Digest |
+| 58 to 65 | Association root | Digest |
+| 66 to 73 | Nullifier hash | Digest |
+| 74 to 81 | Change-note commitment | Digest |
+
+The transaction digest that the client proof exposes is `hash_fields(TRANSACTION = 6, fields)` with Poseidon2. On chain, a digest is packed into one word with element `i` at bits `32i` to `32i + 31`.
+
+## Spend queue
+
+The exit's queue directory holds one `<id>.json` and one `<id>.tgz` per spend. Exit prover tooling moves handled spends into `done/` or `rejected/` subdirectories; `deploy.sh fetch-queue` skips spends found there.

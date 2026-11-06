@@ -21,7 +21,7 @@ use topi_sphinx::PACKET_SIZE;
 use crate::events::{Event, Events, Reject};
 use crate::topology::{EPOCH_SECS, TOKENS_PER_EPOCH, Topology, membership};
 use crate::transport::{self, connect};
-use crate::{Error, Result, Role};
+use crate::{Error, Result};
 
 /// Packets one token can carry after the first (a 1.3 MB spend is about 280 packets).
 pub const CONTINUATIONS_PER_TOKEN: u32 = 512;
@@ -34,7 +34,7 @@ pub fn current_epoch() -> u64 {
 /// through the next epoch too, so a long message that straddles an epoch boundary is not cut off.
 type Budgets = Arc<Mutex<HashMap<[u8; 32], (u64, u32)>>>;
 
-pub async fn serve(bind: &str, port: u16, topo: Arc<Topology>, events: Events) -> Result<()> {
+pub async fn serve(bind: &str, port: u16, gw_id: u16, topo: Arc<Topology>, events: Events) -> Result<()> {
     let root = topo.root()?;
     let system = topi_ratelimit::system(topi_ratelimit::Params::default()).map_err(|e| Error::RateLimit(format!("{e:?}")))?;
     let limiter = Arc::new(Mutex::new(RateLimiter::new(system, root, current_epoch())));
@@ -44,7 +44,7 @@ pub async fn serve(bind: &str, port: u16, topo: Arc<Topology>, events: Events) -
         let Ok((s, _)) = listener.accept().await else { continue };
         let (limiter, budgets, events, topo) = (limiter.clone(), budgets.clone(), events.clone(), topo.clone());
         tokio::spawn(async move {
-            let _ = handle(s, limiter, budgets, root, &topo, events).await;
+            let _ = handle(s, limiter, budgets, root, gw_id, &topo, events).await;
         });
     }
 }
@@ -54,6 +54,7 @@ async fn handle(
     limiter: Arc<Mutex<RateLimiter>>,
     budgets: Budgets,
     root: Digest,
+    gw_id: u16,
     topo: &Topology,
     events: Events,
 ) -> Result<()> {
@@ -66,7 +67,7 @@ async fn handle(
             l.reset(root, epoch);
         }
     }
-    let gateway = topo.addr(Role::Gateway.id())?;
+    let gateway = topo.addr(gw_id)?;
     match kind[0] {
         1 => {
             let mut len = [0u8; 4];
@@ -183,50 +184,97 @@ pub struct RateLimitClient {
     epoch: u64,
     token_root: Digest,
     gateway: String,
+    /// This epoch's ticket, kept to register again with a gateway that restarted and forgot it.
+    ticket: Vec<u8>,
 }
 
 impl RateLimitClient {
     /// Make sure the gateway holds this epoch's ticket for `identity` (proving it once per epoch).
     pub async fn connect(topo: &Topology, identity: impl AsRef<Path>) -> Result<RateLimitClient> {
+        Self::connect_to(&topo.rate_limit, topo, identity).await
+    }
+
+    /// Connect to a specific gateway rate-limiter endpoint address.
+    pub async fn connect_to(addr: &str, topo: &Topology, identity: impl AsRef<Path>) -> Result<RateLimitClient> {
         let identity = identity.as_ref().to_path_buf();
         let _guard = FileLock::acquire(&identity);
         let id = load_identity(&identity)?;
         let state = identity.with_extension("state");
         let epoch = current_epoch();
+        let ticket_cache = identity.with_extension(format!("ticket-{epoch}"));
         let members = topo.members()?;
         let root = topo.root()?;
         let tree = membership(&members);
         let index = tree.position(&id.commitment()).ok_or_else(|| Error::RateLimit("identity is not a registered member".into()))?;
-        let already = read_state(&state).is_some_and(|(e, _)| e == epoch);
-        if !already {
+
+        // 1. Get or generate epoch ticket bytes (proved once per epoch, cached for all gateways)
+        let bytes = if let Ok(cached) = std::fs::read(&ticket_cache) {
+            cached
+        } else {
             let path = tree.path(index).ok_or_else(|| Error::RateLimit("no membership path".into()))?;
             let prover = load_identity(&identity)?;
             let ticket = tokio::task::spawn_blocking(move || topi_ratelimit::prove_epoch(&prover, &path, &root, epoch, TOKENS_PER_EPOCH))
                 .await
                 .map_err(|e| Error::RateLimit(e.to_string()))?
                 .map_err(|e| Error::RateLimit(format!("prove: {e:?}")))?;
-            let bytes = ticket.to_bytes();
-            let mut frame = vec![1u8];
-            frame.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
-            frame.extend_from_slice(&bytes);
-            if !exchange(&topo.rate_limit, &frame).await? {
-                return Err(Error::RateLimit("the gateway refused this epoch's ticket".into()));
+            let b = ticket.to_bytes();
+            let _ = std::fs::write(&ticket_cache, &b);
+            // Clean up any old epoch ticket files
+            if let Some(parent) = identity.parent()
+                && let Ok(entries) = std::fs::read_dir(parent)
+            {
+                for entry in entries.flatten() {
+                    let fname = entry.file_name().to_string_lossy().to_string();
+                    if fname.contains(".ticket-") && !fname.ends_with(&epoch.to_string()) {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
             }
+            b
+        };
+
+        // 2. Register ticket with this specific gateway (if not yet registered this epoch)
+        let gw_reg_file = identity.with_extension(format!("gw-{epoch}-{}", addr.replace([':', '.'], "_")));
+        if !gw_reg_file.exists() {
+            register(addr, &bytes).await?;
+            let _ = std::fs::write(&gw_reg_file, b"ok");
+        }
+
+        // 3. Ensure token state exists for current epoch
+        if !read_state(&state).is_some_and(|(e, _)| e == epoch) {
             std::fs::write(&state, format!("{epoch} 0"))?;
         }
+
         Ok(RateLimitClient {
             token_root: topi_ratelimit::token_root(&id, epoch, TOKENS_PER_EPOCH),
             identity,
             state,
             id,
             epoch,
-            gateway: topo.rate_limit.clone(),
+            gateway: addr.to_string(),
+            ticket: bytes,
         })
     }
 
     /// Send a message's first packet with the next unused token; returns the token value its
     /// further packets ride on.
     pub async fn send_first(&mut self, packet: &[u8]) -> Result<[u8; 32]> {
+        let (frame, value) = self.first_frame(packet)?;
+        if exchange(&self.gateway, &frame).await? {
+            return Ok(value);
+        }
+        // The gateway may have restarted this epoch and forgotten the ticket: register it again, and retry
+        // once with a fresh token (the refused one may already count as spent).
+        register(&self.gateway, &self.ticket).await?;
+        let (frame, value) = self.first_frame(packet)?;
+        if !exchange(&self.gateway, &frame).await? {
+            return Err(Error::RateLimit("the gateway refused the packet".into()));
+        }
+        Ok(value)
+    }
+
+    /// The next unused token of this epoch and the frame carrying `packet` on it.
+    fn first_frame(&self, packet: &[u8]) -> Result<(Vec<u8>, [u8; 32])> {
         let index = {
             let _guard = FileLock::acquire(&self.identity);
             let next = read_state(&self.state).filter(|(e, _)| *e == self.epoch).map(|(_, n)| n).unwrap_or(0);
@@ -242,10 +290,7 @@ impl RateLimitClient {
         frame.extend_from_slice(&tok);
         frame.extend_from_slice(packet);
         let value: [u8; 32] = tok.get(..32).and_then(|v| v.try_into().ok()).ok_or_else(|| Error::RateLimit("short token".into()))?;
-        if !exchange(&self.gateway, &frame).await? {
-            return Err(Error::RateLimit("the gateway refused the packet".into()));
-        }
-        Ok(value)
+        Ok((frame, value))
     }
 
     pub async fn send_continuation(&self, token: &[u8; 32], packet: &[u8]) -> Result<()> {
@@ -262,6 +307,17 @@ impl RateLimitClient {
 fn read_state(path: &Path) -> Option<(u64, u64)> {
     let v: Vec<u64> = std::fs::read_to_string(path).ok()?.split_whitespace().filter_map(|x| x.parse().ok()).collect();
     (v.len() == 2).then(|| (v[0], v[1]))
+}
+
+/// Hands this epoch's ticket to the gateway at `addr`.
+async fn register(addr: &str, ticket: &[u8]) -> Result<()> {
+    let mut frame = vec![1u8];
+    frame.extend_from_slice(&(ticket.len() as u32).to_be_bytes());
+    frame.extend_from_slice(ticket);
+    if !exchange(addr, &frame).await? {
+        return Err(Error::RateLimit("the gateway refused this epoch's ticket".into()));
+    }
+    Ok(())
 }
 
 async fn exchange(addr: &str, frame: &[u8]) -> Result<bool> {
