@@ -1,0 +1,12 @@
+// The website on Cloudflare: static assets only, with no Worker code, so every request is served from
+// the edge for free. public/_headers sets the security headers; unknown paths get 404.html.
+{
+  "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
+  "name": "topi",
+  "compatibility_date": "2026-10-23",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page",
+    "html_handling": "drop-trailing-slash"
+  }
+}
