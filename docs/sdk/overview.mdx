@@ -1,0 +1,50 @@
+---
+title: "SDK overview"
+description: "@topi/sdk: frame transactions, the shielded pool, post-quantum signers, and adapters for the prover and the mixnet."
+---
+
+`@topi/sdk` is a TypeScript library for building on Topi from Node.js. It has two runtime dependencies (`@noble/hashes` and `@noble/curves`) and no framework.
+
+## Modules
+
+| Module | Import | Contents |
+|---|---|---|
+| frames | `@topi/sdk/frames` | EIP-8141 frame transaction model, RLP encoding and decoding, signature hash, gas accounting, the mempool JSON shape |
+| rlp | `@topi/sdk/rlp` | RLP encoder and decoder |
+| ecdsa | `@topi/sdk/ecdsa` | secp256k1 keys and frame transaction signing, for classic deployments |
+| rpc | `@topi/sdk/rpc` | JSON-RPC client with `ethrex_simulateFrameTransaction` and `eth_sendFrameTransaction` |
+| pool | `@topi/sdk/pool` | Deployment records, spend field layout, events, tree rebuild, deposit and settle transactions |
+| pq | `@topi/sdk/pq` | Post-quantum signers (leanSPHINCS through `lsk`), `ARBITRARY` witnesses, the PQ account transaction |
+| prover | `@topi/sdk/prover` | Adapter for `pool-wallet` and the proving scripts, on Linux or through WSL |
+| mixnet | `@topi/sdk/mixnet` | Adapter for `topi-client` and the exit's spend queue |
+| config | `@topi/sdk/config` | `.env` loading and repository-relative paths |
+
+The package root, `@topi/sdk`, re-exports every module, together with byte, ABI, EIP-1559 and process helpers.
+
+## Design
+
+- **Values are `bigint`.** Addresses, amounts, gas and nonce keys are `bigint`; byte strings are `Uint8Array`; hex strings are typed `Hex` (`` `0x${string}` ``).
+- **Pure builders, explicit side effects.** Functions such as `buildSettleTransaction` and `buildAccountTransaction` only build data. Only `RpcClient.sendRawTransaction` and `RpcClient.sendFrameTransaction` (to an alt mempool) change chain state, and only the prover and mixnet adapters run external programs.
+- **Keys stay out of process memory where possible.** `LskSigner` passes a key file path to the `lsk` signer and receives only signatures; errors never include the signer's output.
+- **Simulate before sending.** `RpcClient.simulateFrameTransaction` validates and executes a transaction on chain 8141 without committing it.
+
+## Example
+
+```ts
+import { PoolReader, RpcClient, loadPoolDeployment } from "@topi/sdk";
+
+const rpc = new RpcClient("https://rpc1.privacy.ethrex.xyz");
+const pool = loadPoolDeployment("deployments/8141/pool.json");
+const reader = new PoolReader(rpc, pool.pool);
+
+const events = await reader.events();
+console.log(`${events.length} pool events, root ${await reader.poolRoot()}`);
+```
+
+<CardGroup cols={2}>
+  <Card title="Installation" href="/sdk/installation">Add the SDK to a project.</Card>
+  <Card title="Frames" href="/sdk/frames">Build, encode and hash frame transactions.</Card>
+  <Card title="Pool" href="/sdk/pool">Read the pool, deposit, settle.</Card>
+  <Card title="PQ accounts" href="/sdk/pq-accounts">leanSPHINCS signers and account transactions.</Card>
+  <Card title="Mixnet and prover adapters" href="/sdk/mixnet-and-prover">Proofs and mixnet submission from TypeScript.</Card>
+</CardGroup>

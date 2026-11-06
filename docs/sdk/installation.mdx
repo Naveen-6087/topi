@@ -1,0 +1,71 @@
+---
+title: "Installation"
+description: "Add @topi/sdk to a project."
+---
+
+The SDK requires Node.js 22.18 or later (Node.js 24 recommended) and is an ES module.
+
+The package is not published to npm yet. The release workflow publishes it on a `v*` tag only when the repository variable `PUBLISH_SDK` is `true`; until then, install it from a checkout.
+
+## From the repository
+
+The repository is an npm workspace containing `sdk` and `scripts`:
+
+```bash
+npm install
+npm run build       # compiles sdk/src to sdk/dist
+npm test            # runs the SDK tests
+```
+
+To use it from another project, depend on the local package:
+
+```bash
+npm install /path/to/topi/sdk
+```
+
+## Imports
+
+```ts
+import { RpcClient, buildSettleTransaction } from "@topi/sdk";
+// or a single module
+import { signatureHash } from "@topi/sdk/frames";
+```
+
+Inside the repository, Node.js can also run the TypeScript sources directly, since they use only erasable type syntax:
+
+```bash
+node scripts/your-script.ts
+```
+
+## Configuration
+
+`loadConfig(root)` loads `<root>/.env` into `process.env` (variables already set win) and returns accessors. It uses `process.loadEnvFile` where the runtime has it and parses the file itself otherwise, so it also works under Bun (the alt mempool's admission policy runs there):
+
+```ts
+import { loadConfig, loadPoolDeployment } from "@topi/sdk";
+
+const config = loadConfig(process.cwd());
+const rpcUrl = config.get("RPC_URL", "https://rpc1.privacy.ethrex.xyz")!;
+const pool = loadPoolDeployment(config.resolve("deployments/8141/pool.json"));
+const keyFile = config.requirePath("PQ_KEY_FILE"); // throws if unset
+```
+
+| Method | Returns |
+|---|---|
+| `get(key, fallback?)` | The setting, or `fallback` when unset or empty |
+| `require(key)` | The setting; throws if missing |
+| `path(key, fallback?)` | A path setting resolved against the root |
+| `requirePath(key)` | A required path setting, resolved |
+| `resolve(path)` | Any path resolved against the root |
+
+The variable names above (`RPC_URL`, `PQ_KEY_FILE`) are examples; the SDK reads only the keys you ask for.
+
+## External tools
+
+Some modules wrap programs rather than reimplementing them:
+
+| Module | Needs |
+|---|---|
+| `pq` (`LskSigner`) | The `lsk` leanSPHINCS signer binary and a key file |
+| `prover` | The prover workspace set up by `prover/setup.sh`, on Linux or in WSL |
+| `mixnet` | The `topi-client` binary and a topology and identity file |

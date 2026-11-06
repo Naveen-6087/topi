@@ -1,0 +1,81 @@
+---
+title: "PQ accounts"
+description: "leanSPHINCS signers, ARBITRARY witnesses and transactions from a post-quantum account."
+---
+
+`@topi/sdk/pq` signs frame transactions with leanSPHINCS. A witness travels in an empty-msg `ARBITRARY` signature entry, and a VERIFY frame checks it on chain. See [Post-quantum accounts](/architecture/post-quantum-accounts) for the protocol side.
+
+## Signers
+
+```ts
+interface PQPublicKey { pkSeed: Hex; pkRoot: Hex }
+
+interface PQSigner {
+  publicKey(): Promise<PQPublicKey>;
+  sign(digest: Uint8Array): Promise<Uint8Array>;   // 32-byte digest in, witness out
+}
+```
+
+`LskSigner` implements `PQSigner` with the `lsk` command-line signer from `nconsigny/SPHINCS-`:
+
+```ts
+import { LskSigner, LEANSPHINCS_SIGNATURE_BYTES } from "@topi/sdk";
+
+const signer = new LskSigner({ binary: "/path/to/lsk", keyFile: "/path/to/user.key" });
+const { pkSeed, pkRoot } = await signer.publicKey();     // lsk info KEYFILE
+const witness = await signer.sign(digest);               // lsk sign-key KEYFILE DIGEST
+witness.length === LEANSPHINCS_SIGNATURE_BYTES;          // 5,684
+```
+
+The key file's contents never pass through the Node.js process. If signing fails, the error reports only the exit status. `decodeLskSignature(output)` extracts the signature from `lsk`'s ABI-encoded output and checks its length.
+
+Any object with `publicKey` and `sign` works as a signer, for example one backed by a hardware device or a remote signing service.
+
+## Adding a witness
+
+```ts
+import { addArbitraryWitness } from "@topi/sdk";
+
+await addArbitraryWitness(tx, signer);
+```
+
+If the last signature entry is not an empty `ARBITRARY` entry, a placeholder is appended. The signer then signs `signatureHash(tx)` and the witness is written into that entry. The entry's bytes are elided from the signature hash, so the transaction does not change underneath the signature.
+
+## Account transactions
+
+A PQ account transaction has a VERIFY frame on the account (execution and payment) and one SENDER call:
+
+```ts
+import { RpcClient, encodeRaw, loadAccountDeployment, signedAccountTransaction } from "@topi/sdk";
+
+const rpc = new RpcClient("https://rpc1.privacy.ethrex.xyz");
+const account = loadAccountDeployment("deployments/8141/account.json");
+
+const tx = await signedAccountTransaction(
+  {
+    account: account.account,
+    verifySelector: account.verifySelector,
+    chainId: await rpc.chainId(),
+    fees: await rpc.feeCaps(),
+    call: { target: recipient, value: 1_000_000_000_000_000n, data: new Uint8Array(), gasLimit: 50_000n, stateLimit: 0n },
+  },
+  signer,
+);
+
+const sim = await rpc.simulateFrameTransaction(encodeRaw(tx));
+if (sim.valid) await rpc.sendRawTransaction(encodeRaw(tx));
+```
+
+| Parameter | Meaning |
+|---|---|
+| `account` | The account address |
+| `verifySelector` | The account's VERIFY selector, eight hex digits (from the deployment record) |
+| `call` | `target`, `value`, `data`, `gasLimit`, `stateLimit` of the SENDER frame |
+| `verifyGas`, `verifyState` | VERIFY frame limits; defaults 120,000 and 110,000 (the state budget covers the fresh nonce key) |
+| `nonceKey` | Optional; a random 128-bit key by default |
+
+`buildAccountTransaction(params)` returns the unsigned transaction with a placeholder entry, for callers that sign elsewhere.
+
+## Operator signatures for settles
+
+The exit operator signs settle transactions the same way: `signSettleTransaction(tx, deployment, { pqSigner })` from the [pool module](/sdk/pool) clears the signature list and adds the operator's `ARBITRARY` witness, which `PQPaymaster` verifies under the key recorded as `exitPkSeed` and `exitPkRoot`.

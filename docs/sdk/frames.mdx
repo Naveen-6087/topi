@@ -1,0 +1,138 @@
+---
+title: "Frames"
+description: "Build, encode, hash, sign and cost EIP-8141 frame transactions."
+---
+
+`@topi/sdk/frames` models EIP-8141 frame transactions (type `0x06`) as implemented by ethrex on chain 8141.
+
+## Types
+
+```ts
+interface Frame {
+  mode: bigint;            // MODE.DEFAULT | MODE.VERIFY | MODE.SENDER
+  flags: bigint;           // VERIFY: APPROVE scope in bits 0-1; bit 2: ATOMIC_BATCH
+  target: bigint | null;   // null encodes a targetless frame
+  gasLimit: bigint;        // execution gas
+  stateLimit: bigint;      // EIP-8037 state gas budget
+  value: bigint;
+  data: Uint8Array;
+}
+
+interface FrameSignature {
+  scheme: bigint;          // SCHEME.ARBITRARY | SCHEME.SECP256K1 | SCHEME.P256
+  signer: bigint;          // encoded empty for ARBITRARY
+  msg: Uint8Array;
+  signature: Uint8Array;   // secp256k1: v || r || s; ARBITRARY: the witness
+}
+
+interface FrameTransaction {
+  chainId: bigint;
+  nonceKeys: bigint[];
+  nonceSeq: bigint;
+  sender: bigint;
+  frames: Frame[];
+  signatures: FrameSignature[];
+  maxPriorityFee: bigint;
+  maxFee: bigint;
+  maxBlobFee: bigint;
+  blobHashes: Uint8Array[];
+  recentRootReferences?: [];  // EIP-8272; present only on chain 1337
+}
+```
+
+Chain 8141 encodes frame transactions with 8 fields. The ERC-8421 devnet (chain 1337) adds a ninth, EIP-8272 recent-root references. `hasRecentRoots(chainId)` is `true` for chain 1337, and the builders (`buildSettleTransaction`, `buildAccountTransaction`) then set `recentRootReferences: []`. Only the empty list is supported.
+
+## Constants
+
+| Name | Value |
+|---|---|
+| `FRAME_TX_TYPE` | `0x06` |
+| `MODE` | `DEFAULT 0n`, `VERIFY 1n`, `SENDER 2n` |
+| `APPROVE` | `NONE 0n`, `PAYMENT 1n`, `EXECUTION 2n`, `EXECUTION_AND_PAYMENT 3n` |
+| `ATOMIC_BATCH` | `4n` |
+| `SCHEME` | `ARBITRARY 0n`, `SECP256K1 1n`, `P256 2n` |
+| `SIGNATURE_VERIFICATION_COST` | `[100n, 2_800n, 6_700n]`, by scheme |
+| `EXECUTION_GAS_CAP` | `2n ** 24n` (EIP-7825) |
+
+## Encoding and hashing
+
+| Function | Returns |
+|---|---|
+| `encodeRaw(tx)` | `0x06 \|\| rlp(envelope)`, the bytes `eth_sendRawTransaction` takes |
+| `encodeRawHex(tx)` | The same as hex |
+| `encodeEnvelope(tx)` | The RLP envelope without the type byte |
+| `decodeRaw(raw)` | The parsed `FrameTransaction` |
+| `signatureHash(tx)` | `keccak256` of the raw transaction with the bytes of empty-msg signature entries elided |
+| `randomNonceKey()` | A fresh random 128-bit nonce key |
+| `arbitrarySignaturePlaceholder()` | An empty-msg `ARBITRARY` entry with no bytes, to fill after hashing |
+| `hasRecentRoots(chainId)` | Whether the chain's frame transactions carry the ninth field |
+
+```ts
+import { APPROVE, MODE, encodeRaw, randomNonceKey, signatureHash, type FrameTransaction } from "@topi/sdk";
+
+const tx: FrameTransaction = {
+  chainId: 8141n,
+  nonceKeys: [randomNonceKey()],
+  nonceSeq: 0n,
+  sender: account,
+  frames: [
+    { mode: MODE.VERIFY, flags: APPROVE.EXECUTION_AND_PAYMENT, target: account,
+      gasLimit: 120_000n, stateLimit: 110_000n, value: 0n, data: verifyData },
+    { mode: MODE.SENDER, flags: 0n, target: recipient,
+      gasLimit: 50_000n, stateLimit: 0n, value: 1n, data: new Uint8Array() },
+  ],
+  signatures: [],
+  maxPriorityFee: 1_000_000_000n,
+  maxFee: 3_000_000_000n,
+  maxBlobFee: 0n,
+  blobHashes: [],
+};
+
+const hash = signatureHash(tx);
+```
+
+## Mempool JSON
+
+ERC-8421 alternative mempools take a frame transaction as JSON through `eth_sendFrameTransaction`, not as raw bytes, so they can apply their own admission rules.
+
+| Function | Returns |
+|---|---|
+| `toFrameTxRequest(tx)` | The `eth_sendFrameTransaction` parameter (`FrameTxRequest`): quantities as hex, mode, flags and scheme as numbers |
+| `fromFrameTxRequest(req)` | The inverse, as a `FrameTransaction` |
+
+`RpcClient.sendFrameTransaction(tx)` sends `[toFrameTxRequest(tx)]` and returns the transaction hash. See [Alternative mempool](/architecture/alt-mempool).
+
+```ts
+import { RpcClient } from "@topi/sdk";
+
+const mempool = new RpcClient("http://127.0.0.1:47500/rpc");
+const hash = await mempool.sendFrameTransaction(tx);
+const status = await mempool.request("skandha_frameTransactionStatus", [hash]);
+```
+
+## Signing
+
+- **Post-quantum:** `addArbitraryWitness(tx, signer)` from the [pq module](/sdk/pq-accounts) appends an empty `ARBITRARY` entry if needed, signs `signatureHash(tx)` and writes the witness. Because the entry's bytes are elided from the hash, the result is final.
+- **Classic:** `signTransaction(tx, privateKey, ...after)` from `@topi/sdk/ecdsa` replaces the signature list with one empty-msg secp256k1 entry for the key's address, followed by any `after` entries (for example an `ARBITRARY` placeholder still to be filled).
+
+## Gas accounting
+
+These mirror the chain's intrinsic gas rules, so a transaction can be checked before it is sent:
+
+| Function | Computes |
+|---|---|
+| `signatureVerificationCost(tx)` | Sum of per-scheme verification costs |
+| `valueTransferCost(tx)` | 6,000 per frame moving value to an account other than the sender |
+| `mandatoryGas(tx)` | Intrinsic 12,000, 475 per frame, signature verification and value transfers |
+| `stateGasLimit(tx)` | Sum of all frames' state budgets |
+| `standardGasLimit(tx)` | Mandatory gas, calldata gas and every frame's execution and state budget |
+| `calldataFloorGas(tx)` | Mandatory gas plus the EIP-7976 floor of 64 gas per data byte |
+| `executionCapUsage(tx)` | Declared execution against `EXECUTION_GAS_CAP` |
+| `totalGasLimit(tx)` | `max(standardGasLimit, calldataFloorGas + stateGasLimit)` |
+| `maxCost(tx, blobBaseFee?)` | The most the payer can be charged |
+
+```ts
+import { EXECUTION_GAS_CAP, executionCapUsage } from "@topi/sdk";
+
+if (executionCapUsage(tx) > EXECUTION_GAS_CAP) throw new Error("over the per-transaction execution cap");
+```

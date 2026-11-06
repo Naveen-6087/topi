@@ -1,0 +1,109 @@
+---
+title: "Mixnet and prover adapters"
+description: "Drive pool-wallet, the proving scripts and topi-client from TypeScript."
+---
+
+The proofs and the mixnet client are native programs. `@topi/sdk/prover` and `@topi/sdk/mixnet` run them as child processes and parse their output, so TypeScript code can drive a whole spend.
+
+## Prover
+
+```ts
+import { Prover } from "@topi/sdk";
+
+const prover = new Prover({ proverDir: "prover", echo: true });
+
+await prover.keygen("note.json");
+await prover.witness("note.json", "chain.json", "request.json", "input.json");
+await prover.proveClient("input.json", "spend.tgz");
+```
+
+| Option | Meaning |
+|---|---|
+| `proverDir` | The repository's `prover/` directory (holds `env.sh`, `prove-client.sh`, `prove-exit.sh`) |
+| `wslDistro` | On Windows, the WSL distribution; default `Ubuntu` |
+| `walletBin` | Use this `pool-wallet` binary instead of the one `env.sh` defines |
+| `echo` | Forward tool output as it arrives; default `false` |
+
+| Method | Runs |
+|---|---|
+| `keygen(out)` | `pool-wallet keygen` |
+| `witness(note, chain, request, out)` | `pool-wallet witness` |
+| `checkSpend(fieldsFile, proofArchive)` | Unpacks the proof and runs `pool-wallet check`; resolves `true` if the fields match the proof's statement |
+| `proveClient(input, outArchive)` | `prove-client.sh` |
+| `proveExit(proofA, proofB, outDir)` | `prove-exit.sh`; resolves with the path of `calldata.bin` |
+
+Every command sources `prover/env.sh` first. On Linux and macOS commands run in `bash`; on Windows they run through `wsl -d <distro> -- bash`, and local paths are converted to `/mnt/...` paths. A non-zero exit throws `ProverError`, which carries the captured output in `result`.
+
+<Note>
+`proveExit` takes about 19 minutes and about 12 GB of memory on a laptop. Run it on a dedicated machine; `infra/aws/prover.sh` runs it on a 32-vCPU AWS instance in about 2.5 minutes (see [AWS prover](/guides/aws#exit-prover)).
+</Note>
+
+## Mixnet
+
+```ts
+import { MixnetClient, readSpendQueue } from "@topi/sdk";
+
+const mixnet = new MixnetClient({
+  client: "target/release/topi-client",
+  topology: "run/local/topology.json",
+  identity: "run/local/member.id",
+  timeoutSeconds: 300,
+});
+
+const { round_trip_ms } = await mixnet.ping();
+const receipt = await mixnet.submitSpend("spend.tgz", "public.json");
+if (!receipt.ok) throw new Error(receipt.reason);
+console.log(`queued as ${receipt.queued}`);
+```
+
+| Method | Returns |
+|---|---|
+| `ping()` | `{ reply, round_trip_ms }`; throws `MixnetError` on failure |
+| `submitSpend(proofArchive, publicFieldsFile)` | The exit's reply `{ ok, queued?, bytes?, reason? }` plus the client's `stderr` (which reports the packet count) |
+
+`publicFieldsFile` is JSON of the form `{"fields": [82 numbers]}`.
+
+## Reading the exit's queue
+
+On the exit side, `readSpendQueue(dir)` lists queued spends: each `ID.json` with a matching `ID.tgz`, sorted by id, as `{ id, fieldsFile, proofFile, fields }`. Entries with a missing proof or malformed fields are skipped.
+
+## An exit prover loop
+
+```ts
+import {
+  Prover, PoolReader, RpcClient, buildSettleTransaction, checkSpendFields,
+  encodeRaw, loadPoolDeployment, readSpendQueue, signSettleTransaction,
+} from "@topi/sdk";
+import { readFileSync } from "node:fs";
+
+const rpc = new RpcClient("https://rpc1.privacy.ethrex.xyz");
+const pool = loadPoolDeployment("deployments/8141/pool.json");
+const reader = new PoolReader(rpc, pool.pool);
+const prover = new Prover({ proverDir: "prover" });
+
+const ready = [];
+for (const spend of readSpendQueue("data/aws/spend-queue")) {
+  const reason = checkSpendFields(spend.fields, pool) ?? (await reader.checkSpendState(spend.fields));
+  if (reason === null && (await prover.checkSpend(spend.fieldsFile, spend.proofFile))) ready.push(spend);
+}
+
+if (ready.length >= 2) {
+  const [a, b] = ready;
+  const calldata = await prover.proveExit(a.proofFile, b.proofFile, "out");
+  const tx = buildSettleTransaction({
+    deployment: pool,
+    chainId: await rpc.chainId(),
+    fees: await rpc.feeCaps(),
+    proofCall: readFileSync(calldata),
+    fields: [a.fields, b.fields],
+  });
+  await signSettleTransaction(tx, pool, { pqSigner: exitSigner });
+  await rpc.sendRawTransaction(encodeRaw(tx));
+}
+```
+
+`exitSigner` is a `PQSigner` for the exit operator's leanSPHINCS key; see [PQ accounts](/sdk/pq-accounts).
+
+## Running other tools
+
+`run(command, args, options)` runs any program and resolves with `{ status, stdout, stderr }` without throwing on a non-zero exit. `LinuxShell` runs bash scripts natively or through WSL, and `toWslPath` converts a Windows path.
