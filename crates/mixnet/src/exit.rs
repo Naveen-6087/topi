@@ -28,6 +28,7 @@ pub fn encode_spend(fields: &Value, proof: &[u8]) -> Vec<u8> {
 struct Partial {
     kind: u8,
     parts: Vec<Option<Vec<u8>>>,
+    relay_id: Option<u16>,
     surb: Option<Vec<u8>>,
 }
 
@@ -38,6 +39,7 @@ pub struct Exit {
 
 /// A finished message's answer: the reply block to send it on, and the reply body.
 pub struct Answer {
+    pub relay_id: u16,
     pub surb: Vec<u8>,
     pub body: Vec<u8>,
 }
@@ -58,27 +60,32 @@ impl Exit {
             let _ = events.send(Event::Cover);
             return None;
         }
-        let (kind, parts, surb) = {
+        let (kind, parts, relay_id, surb) = {
             let mut partial = self.partial.lock().unwrap();
-            let p =
-                partial.entry(frag.id).or_insert_with(|| Partial { kind: frag.kind, parts: vec![None; frag.count as usize], surb: None });
+            let p = partial.entry(frag.id).or_insert_with(|| Partial {
+                kind: frag.kind,
+                parts: vec![None; frag.count as usize],
+                relay_id: None,
+                surb: None,
+            });
             if let Some(slot) = p.parts.get_mut(frag.index as usize) {
                 *slot = Some(frag.data);
             }
             if frag.surb.is_some() {
+                p.relay_id = frag.relay_id;
                 p.surb = frag.surb;
             }
             if !(p.parts.iter().all(Option::is_some) && p.surb.is_some()) {
                 return None;
             }
             let p = partial.remove(&frag.id)?;
-            (p.kind, p.parts, p.surb?)
+            (p.kind, p.parts, p.relay_id.unwrap_or(crate::Role::ReplyRelay.id()), p.surb?)
         };
         let message: Vec<u8> = parts.into_iter().flatten().flatten().collect();
         let reply = self.respond(kind, &message, events);
         let mut body = frag.id.to_le_bytes().to_vec();
         body.extend_from_slice(reply.to_string().as_bytes());
-        Some(Answer { surb, body })
+        Some(Answer { relay_id, surb, body })
     }
 
     fn respond(&self, kind: u8, message: &[u8], events: &Events) -> Value {
