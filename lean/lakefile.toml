@@ -1,0 +1,10 @@
+name = "pool-model"
+version = "0.1.0"
+defaultTargets = ["PoolModel", "pool-policy"]
+
+[[lean_lib]]
+name = "PoolModel"
+
+[[lean_exe]]
+name = "pool-policy"
+root = "Main"
