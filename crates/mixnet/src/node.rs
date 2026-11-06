@@ -12,8 +12,7 @@ use topi_sphinx::{DecapsulationKey, PACKET_SIZE, Routing, cover_packet, process,
 
 use crate::events::{Event, Events};
 use crate::exit::Exit;
-use crate::topology::{RATE_LIMIT_PORT, REPLY_STORE_PORT};
-use crate::transport::{self, exp_delay_ms, read_packet, shuffle};
+use crate::transport::{self, exp_delay_ms, random_u64, read_packet, shuffle};
 use crate::{Result, Role, Topology, ratelimit, replies};
 
 /// Packets the mix is holding, with the node each goes to next.
@@ -22,6 +21,10 @@ type Batch = Arc<Mutex<Vec<(u16, Vec<u8>)>>>;
 #[derive(Clone, Debug)]
 pub struct NodeConfig {
     pub role: Role,
+    /// Explicit node id in topology (e.g. 11, 12, 21, 22), defaults to role.id().
+    pub node_id: Option<u16>,
+    /// Explicit listen port override.
+    pub port: Option<u16>,
     /// Address to listen on, e.g. `0.0.0.0`.
     pub bind: String,
     /// How long the mix collects a batch.
@@ -38,6 +41,8 @@ impl NodeConfig {
     pub fn new(role: Role) -> NodeConfig {
         NodeConfig {
             role,
+            node_id: None,
+            port: None,
             bind: "0.0.0.0".into(),
             batch_interval: Duration::from_millis(1500),
             mean_delay_ms: 100.0,
@@ -49,8 +54,8 @@ impl NodeConfig {
 
 /// Run a node until its listener fails.
 pub async fn run(cfg: NodeConfig, sk: DecapsulationKey, topo: Arc<Topology>, events: Events) -> Result<()> {
-    let id = cfg.role.id();
-    let port = topo.nodes.get(&id).map(|n| n.port).unwrap_or(cfg.role.default_port());
+    let id = cfg.node_id.unwrap_or_else(|| cfg.role.id());
+    let port = cfg.port.or_else(|| topo.nodes.get(&id).map(|n| n.port)).unwrap_or(cfg.role.default_port());
     let listener = TcpListener::bind((cfg.bind.as_str(), port)).await?;
     let sk = Arc::new(sk);
     let seen: Arc<Mutex<HashSet<[u8; 32]>>> = Arc::default();
@@ -59,12 +64,23 @@ pub async fn run(cfg: NodeConfig, sk: DecapsulationKey, topo: Arc<Topology>, eve
 
     match cfg.role {
         Role::Gateway => {
-            let (bind, t, e) = (cfg.bind.clone(), topo.clone(), events.clone());
-            let rate_limit_port = port_of(&topo.rate_limit).unwrap_or(RATE_LIMIT_PORT);
-            tokio::spawn(async move { ratelimit::serve(&bind, rate_limit_port, t, e).await });
-            let bind = cfg.bind.clone();
-            let reply_port = port_of(&topo.reply_store).unwrap_or(REPLY_STORE_PORT);
-            tokio::spawn(async move { replies::serve(&bind, reply_port).await });
+            let node_entry = topo.nodes.get(&id);
+            let rl_port = node_entry.and_then(|n| n.rate_limit_port).or_else(|| {
+                let primary_gw = topo.nodes_for_role(Role::Gateway).first().copied().unwrap_or(Role::Gateway.id());
+                if id == primary_gw { port_of(&topo.rate_limit) } else { None }
+            });
+            if let Some(rate_limit_port) = rl_port {
+                let (bind, t, e) = (cfg.bind.clone(), topo.clone(), events.clone());
+                tokio::spawn(async move { ratelimit::serve(&bind, rate_limit_port, id, t, e).await });
+            }
+            let rs_port = node_entry.and_then(|n| n.reply_store_port).or_else(|| {
+                let primary_gw = topo.nodes_for_role(Role::Gateway).first().copied().unwrap_or(Role::Gateway.id());
+                if id == primary_gw { port_of(&topo.reply_store) } else { None }
+            });
+            if let Some(reply_port) = rs_port {
+                let bind = cfg.bind.clone();
+                tokio::spawn(async move { replies::serve(&bind, reply_port).await });
+            }
             tokio::spawn(cover_traffic(topo.clone(), cfg.clone()));
         }
         Role::Mix => {
@@ -88,15 +104,16 @@ pub async fn run(cfg: NodeConfig, sk: DecapsulationKey, topo: Arc<Topology>, eve
                 }
             };
             if p.routing.is_exit {
-                if Role::from_id(p.routing.next).is_none() {
+                if role == Role::Gateway {
                     // the end of a reply path: hold it in the reply store under the sender's slot
                     let _ = events.send(Event::Forwarded);
-                    let _ = replies::deposit(&topo.reply_store, p.routing.next, &p.packet).await;
+                    let reply_store = topo.reply_store_addr(id).unwrap_or_else(|_| topo.reply_store.clone());
+                    let _ = replies::deposit(&reply_store, p.routing.next, &p.packet).await;
                 } else if let Some(exit) = exit
                     && let Some(answer) = exit.accept(&p.packet, &events)
                 {
                     let reply = reply_packet(&answer.surb, &answer.body);
-                    if let Ok(addr) = topo.addr(Role::ReplyRelay.id()) {
+                    if let Ok(addr) = topo.addr(answer.relay_id) {
                         let _ = transport::send(&addr, &reply).await;
                     }
                 }
@@ -139,14 +156,32 @@ async fn release_batches(batch: Batch, topo: Arc<Topology>, events: Events, ever
 
 /// Empty packets on the forward route, indistinguishable from real ones until the exit.
 async fn cover_traffic(topo: Arc<Topology>, cfg: NodeConfig) {
-    let route: Option<Vec<_>> = [Role::Gateway, Role::Mix, Role::Exit].iter().map(|r| topo.public_key(r.id()).ok()).collect();
-    let (Some(route), Ok(gateway)) = (route, topo.addr(Role::Gateway.id())) else { return };
+    let gw_id = cfg.node_id.unwrap_or_else(|| cfg.role.id());
+    let Ok(gw_key) = topo.public_key(gw_id) else { return };
+    let Ok(gateway) = topo.addr(gw_id) else { return };
+
+    let sample_node = |role: Role| -> u16 {
+        let candidates = topo.nodes_for_role(role);
+        if candidates.is_empty() {
+            role.id()
+        } else {
+            let idx = (random_u64() as usize) % candidates.len();
+            candidates[idx]
+        }
+    };
+
     loop {
         tokio::time::sleep(Duration::from_millis(exp_delay_ms(cfg.cover_interval_ms) as u64)).await;
+
+        let mix_id = sample_node(Role::Mix);
+        let exit_id = sample_node(Role::Exit);
+        let (Ok(mix_key), Ok(exit_key)) = (topo.public_key(mix_id), topo.public_key(exit_id)) else { continue };
+
+        let route = [gw_key.clone(), mix_key, exit_key];
         let routing = [
-            Routing { is_exit: false, next: Role::Mix.id(), delay_ms: exp_delay_ms(cfg.mean_delay_ms) },
-            Routing { is_exit: false, next: Role::Exit.id(), delay_ms: 0 },
-            Routing { is_exit: true, next: Role::Exit.id(), delay_ms: 0 },
+            Routing { is_exit: false, next: mix_id, delay_ms: exp_delay_ms(cfg.mean_delay_ms) },
+            Routing { is_exit: false, next: exit_id, delay_ms: 0 },
+            Routing { is_exit: true, next: exit_id, delay_ms: 0 },
         ];
         let pkt = cover_packet(&route, &routing);
         debug_assert_eq!(pkt.len(), PACKET_SIZE);
