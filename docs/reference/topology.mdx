@@ -1,0 +1,55 @@
+---
+title: "Topology file format"
+description: "The JSON file every node and client shares."
+---
+
+A topology lists the nodes, where they listen, their public keys, and the rate-limit parameters. `topi-node topology` writes it; every node and client reads it.
+
+```json
+{
+  "version": 1,
+  "nodes": {
+    "1": { "role": "gateway",     "host": "127.0.0.1", "port": 47101, "public_key": "<1216-byte hex>" },
+    "2": { "role": "mix",         "host": "127.0.0.1", "port": 47102, "public_key": "<1216-byte hex>" },
+    "3": { "role": "exit",        "host": "127.0.0.1", "port": 47103, "public_key": "<1216-byte hex>" },
+    "4": { "role": "reply-relay", "host": "127.0.0.1", "port": 47104, "public_key": "<1216-byte hex>" }
+  },
+  "rate_limit": "127.0.0.1:47201",
+  "reply_store": "127.0.0.1:47250",
+  "epoch_secs": 600,
+  "tokens_per_epoch": 16,
+  "membership_root": "<32-byte hex>",
+  "members": ["<32-byte hex>"]
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `version` | number | Format version, currently `1` |
+| `nodes` | object | Keyed by role id; the id is also the routing address inside packets |
+| `nodes.*.role` | string | `gateway`, `mix`, `exit` or `reply-relay` |
+| `nodes.*.host`, `port` | string, number | Where the node listens |
+| `nodes.*.public_key` | hex | X-Wing encapsulation key, 1,216 bytes |
+| `rate_limit` | `host:port` | The gateway's rate limiter |
+| `reply_store` | `host:port` | The gateway's reply store |
+| `epoch_secs` | number | Rate-limit epoch length |
+| `tokens_per_epoch` | number | Tokens per member per epoch (`L`) |
+| `membership_root` | hex | Root of the depth-16 SHA-256 membership tree |
+| `members` | hex array | Member commitments in tree order |
+
+| Role | Id | Default port |
+|---|---|---|
+| `gateway` | 1 | 47101 |
+| `mix` | 2 | 47102 |
+| `exit` | 3 | 47103 |
+| `reply-relay` | 4 | 47104 |
+
+Reply slots (the final routing address on a reply path) are chosen at random from 1000 to 60999, so they never collide with role ids.
+
+## Changing members
+
+The membership root is computed when the topology is written. To add a member, run `topi-client register`, regenerate the topology, and restart the gateway with it; clients must use the new file too.
+
+## Several networks on one host
+
+The library's `Topology::shift_ports(offset)` moves every port, including the rate limiter and reply store, by `offset`. The integration test uses it to run a network beside the default ports.

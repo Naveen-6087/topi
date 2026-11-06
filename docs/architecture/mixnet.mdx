@@ -1,0 +1,73 @@
+---
+title: "Mixnet"
+description: "KEM-Sphinx packets, the four node roles, batching, cover traffic and SURB replies."
+---
+
+The mixnet (`crates/sphinx`, `crates/mixnet`) carries messages from a client to the exit over three hops and brings the answer back over three more. Every packet on every link is exactly 8,192 bytes, and each hop removes one layer of encryption that only it can open.
+
+## Packet format
+
+`crates/sphinx` implements a KEM-based variant of Sphinx. Instead of a single group element blinded per hop, each hop gets its own X-Wing ciphertext (ML-KEM-768 combined with X25519), so the packet stays secure if either component holds.
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `HOPS` | 3 | Hops in every route |
+| `CT` | 1,120 bytes | X-Wing ciphertext per hop |
+| `MAC` | 16 bytes | Header MAC per hop |
+| `ROUTING` | 32 bytes | Routing entry per hop: exit flag, next node id, delay in ms |
+| `HEADER` | 3,504 bytes | Three entries of routing, MAC and ciphertext |
+| `PACKET_SIZE` | 8,192 bytes | Every packet, at every hop |
+| `PAYLOAD` | 4,688 bytes | `PACKET_SIZE - HEADER` |
+| `TAG` | 16 bytes | End-to-end integrity tag at the start of the payload |
+
+From each hop's shared secret, BLAKE3 derives four keys: header MAC, header stream, payload stream and replay tag. The header uses the classic Sphinx filler construction so its length never changes between hops. Each node keeps a set of replay tags it has seen and drops a packet whose tag repeats.
+
+Node public keys are 1,216-byte X-Wing encapsulation keys; node key files hold the 32-byte X-Wing seed in hex.
+
+<Note>
+Two simplifications are deliberate and documented in the crate: layer encryption uses the BLAKE3 XOF as a stream cipher, and the payload is encrypted with a plain stream layer per hop rather than a wide-block cipher such as Lioness. Integrity is checked end to end by the tag at the final recipient, not per hop.
+</Note>
+
+## Roles
+
+| Role | Id | Default port | Behaviour |
+|---|---|---|---|
+| `gateway` | 1 | 47101 | First hop. Runs the rate limiter (47201) and the reply store (47250). Emits cover traffic. Holds each packet for the delay its routing entry requests. |
+| `mix` | 2 | 47102 | Second hop. Collects packets for a batch interval (default 1,500 ms), shuffles the batch and releases it. |
+| `exit` | 3 | 47103 | Last hop. Reassembles fragments, answers pings, queues pool spends on disk, answers on the sender's SURB. |
+| `reply-relay` | 4 | 47104 | First hop of the reply path. |
+
+Every node also serves its counters (received, forwarded, batches, cover, spends, rejected, recent log) as one JSON document per connection on its stats port, 47300 by default. The transport is plain TCP with one connection per packet.
+
+## Forward path
+
+A client encapsulates to gateway, mix and exit in that order. The gateway's routing entry carries an exponentially distributed delay (mean 100 ms by default); the mix ignores per-packet delay and batches instead. Consecutive packets of one message are spaced by an exponential gap with a 60 ms mean.
+
+Packets enter through the rate limiter, not directly at the gateway's node port: the client sends a frame with a token and the packet, and the rate limiter forwards admitted packets to the gateway. See [Rate limiting](/architecture/rate-limiting).
+
+## Messages and fragments
+
+A message larger than one payload is split into fragments. The first fragment also carries the SURB header (3,504 bytes), so it has less room for data:
+
+| Fragment | Data capacity |
+|---|---|
+| First | 1,150 bytes |
+| Each further | 4,656 bytes |
+
+A 1.3 MB spend therefore takes about 280 packets. The exit collects fragments by message id until all parts and the SURB are present. The exact layout is in [Message and spend formats](/reference/formats).
+
+## Cover traffic
+
+The gateway sends empty packets along the forward route at exponentially distributed intervals (mean 700 ms). They are indistinguishable from real packets until the exit decrypts the last layer and finds an empty payload, which it counts and drops.
+
+## Replies
+
+Routes are drawn at random from the nodes the topology lists for each role. The client keeps one gateway for its session (it holds the client's epoch ticket), one exit for each message (the exit reassembles it), and picks a fresh mix for every packet. It builds a single-use reply block for a reply route of a random reply relay and mix back to its own gateway, whose final routing entry names a random reply slot. The SURB header rides in the first fragment, after the reply relay's node id, so the exit knows where to send the answer; the client keeps the per-hop keys and polls its gateway's reply store.
+
+When the exit finishes a message, it builds a reply packet on that SURB and sends it to the reply relay. At the end of the reply path the gateway deposits the packet in its reply store under the slot. The client polls the store every 700 ms, decrypts packets with the SURB keys and matches the message id. The store holds at most 4,096 packets and drops the oldest first.
+
+Clients never accept connections, so they work behind NAT and on mobile networks.
+
+## Topology
+
+All nodes and clients share a topology file listing each role's host, port and public key, the rate limiter and reply store addresses, the epoch parameters and the membership tree. See [Topology file format](/reference/topology).
