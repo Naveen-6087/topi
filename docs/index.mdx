@@ -1,0 +1,72 @@
+---
+title: "Introduction"
+description: "Post-quantum private payments on Ethereum's EIP-8141 frame transactions."
+---
+
+Topi is an open-source stack for private payments on Ethereum that stays post-quantum from the wallet to the chain. A wallet proves a withdrawal from a shielded pool with a hash-based zero-knowledge proof, sends it through a post-quantum mixnet, and an exit prover aggregates two such proofs into one terminal proof that a frame transaction settles on chain. The pool path uses no elliptic-curve signatures: authorization is a leanSPHINCS signature carried in an EIP-8141 `ARBITRARY` signature entry.
+
+Topi runs on the ethrex privacy testnet:
+
+| | |
+|---|---|
+| Chain ID | `8141` |
+| RPC | `https://rpc1.privacy.ethrex.xyz` |
+| Explorer | [dora.privacy.ethrex.xyz](https://dora.privacy.ethrex.xyz) |
+
+## Why
+
+A shielded pool hides which deposit pays which withdrawal, but three things still leak or break under a quantum adversary:
+
+- **The network.** The RPC endpoint that receives a withdrawal sees the sender's IP address and timing. Topi sends spends through a three-hop mixnet with batching, shuffling and cover traffic.
+- **The cryptography.** Pairing-based SNARKs, ECDH-based mixnet packets and ECDSA authorization are all broken by a large quantum computer. Every layer of Topi rests on hash functions or lattices instead.
+- **Gas payment.** A user who pays gas from an account links that account to the spend. In Topi the pool itself is the transaction sender and a paymaster pays, so the user needs no gas account. Settles travel through an ERC-8421 [alternative mempool](/architecture/alt-mempool) built for them, since the public mempool holds one transaction per sender.
+
+## The post-quantum stack
+
+| Layer | Mechanism | Assumption |
+|---|---|---|
+| Packet encryption | KEM-Sphinx, one X-Wing (ML-KEM-768 + X25519) encapsulation per hop, fixed 8,192-byte packets | Lattices (ML-KEM), hybrid with X25519 |
+| Anonymous rate limiting | Binius64 zero-knowledge epoch ticket over SHA-256, per-packet hash tokens | Hash functions |
+| Spend proof (wallet) | Spartan-WHIR full zero-knowledge proof of the privacy-pools withdrawal relation | Hash functions |
+| Spend aggregation (exit) | leanVM recursion of two client proofs to a grouped Keccak WHIR terminal proof | Hash functions |
+| On-chain verification | Generated WHIR terminal verifier plus Poseidon statement binding in `ShieldedPool` | Hash functions |
+| Transaction authorization | leanSPHINCS signature (5,684 bytes) in an EIP-8141 `ARBITRARY` entry, read with `SIGDATACOPY` | Hash functions |
+| Policy correctness | Lean 4 model of the validation policy and settle state machine, 27 machine-checked results | None (proof) |
+
+<Note>
+Topi is research software on a testnet. It is unaudited, and several upstream components (Binius64's zero-knowledge wrapper, the leanVM recursion, leanSPHINCS) are pre-release. Read [Security model and limitations](/architecture/security) before relying on any property.
+</Note>
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build the binaries, run a four-node mixnet on one machine and send a ping.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Components, the reply path, and the lifecycle of a private spend.
+  </Card>
+  <Card title="Make a private payment" icon="shield-halved" href="/guides/private-payment">
+    Deposit, prove, send through the mixnet and settle on chain 8141.
+  </Card>
+  <Card title="Smart contracts" icon="file-contract" href="/contracts/overview">
+    The pool, the accounts, the paymasters and their deployed addresses.
+  </Card>
+</CardGroup>
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `crates/sphinx` | KEM-Sphinx packet format |
+| `crates/ratelimit` | Anonymous per-epoch rate limiting |
+| `crates/mixnet` | Gateway, mix, exit and reply-relay nodes; `topi-node` and `topi-client` binaries |
+| `crates/console` | Terminal console `topi` |
+| `contracts/` | Foundry library: `ShieldedPool`, `StatementBinding`, Yul accounts and paymasters, terminal verifier |
+| `prover/` | Client and exit proving scripts with pinned upstream commits |
+| `lean/` | Lean 4 model and proofs (`pool-model`) |
+| `infra/aws/` | Terraform and deployment script for a four-region mixnet, and the AWS exit prover |
+| `mempool/` | The ERC-8421 alt mempool: rules, admission policy, sidecar patch |
+| `sdk/` | TypeScript SDK `@topi/sdk` |
+| `scripts/` | Wallet, settle, exit prover, demo and differential-test scripts |
+| `deployments/` | Deployed contract addresses on chain 8141 and the ERC-8421 devnet (chain 1337) |

@@ -1,0 +1,74 @@
+---
+title: "Quickstart"
+description: "Build Topi, run a four-node mixnet on one machine, and send a ping through it."
+---
+
+This walkthrough runs the whole mixnet on localhost: a gateway, a mix, an exit and a reply relay, each as its own `topi-node` process. It needs only Rust; see [Installation](/installation).
+
+<Steps>
+  <Step title="Build">
+    ```bash
+    cargo build --release
+    export PATH="$PWD/target/release:$PATH"
+    mkdir -p run/local/keys
+    ```
+  </Step>
+  <Step title="Register a member">
+    Only members of the rate-limit membership tree may send. Create an identity and append its commitment to the member list:
+
+    ```bash
+    topi-client register --identity run/local/member.id --members run/local/members.txt
+    ```
+  </Step>
+  <Step title="Create node keys and the topology">
+    ```bash
+    for r in gateway mix exit reply-relay; do
+      topi-node keygen run/local/keys/$r.key > /dev/null
+    done
+    topi-node topology run/local/topology.json \
+      --members run/local/members.txt --keys run/local/keys \
+      --hosts 127.0.0.1 127.0.0.1 127.0.0.1 127.0.0.1
+    ```
+  </Step>
+  <Step title="Start the four nodes">
+    Each node serves its counters on a stats port; on one host they need distinct ports.
+
+    ```bash
+    port=47300
+    for r in gateway mix exit reply-relay; do
+      topi-node run $r --topology run/local/topology.json --key run/local/keys/$r.key \
+        --bind 127.0.0.1 --stats-port $port --spend-queue run/local/spend-queue &
+      port=$((port + 1))
+    done
+    ```
+  </Step>
+  <Step title="Ping through every hop">
+    ```bash
+    topi-client ping --topology run/local/topology.json --identity run/local/member.id
+    ```
+
+    The first call of each 10-minute epoch proves a rate-limit ticket (well under a second), then the ping crosses gateway, mix and exit and comes back on a single-use reply block. The client prints one JSON line: `reply` is the exit's answer, `{"ok": true, "pong": true}`, and `round_trip_ms` is the elapsed time including the ticket proof.
+  </Step>
+  <Step title="Watch it in the console">
+    ```bash
+    topi map
+    ```
+
+    The Mixnet map tab reads each node's stats port and shows packets in flight, batches and cover traffic. See [Use the console](/guides/console).
+
+    The console can also run everything on this page itself: `l` on the Mixnet map tab starts four local nodes, and `D` on the Wallet tab runs a whole private payment.
+  </Step>
+</Steps>
+
+Stop the nodes with `kill %1 %2 %3 %4` (or close the shell).
+
+## The private payment flow
+
+Once the mixnet works, a private payment adds the pool and the prover. Each step is covered in [Make a private payment](/guides/private-payment).
+
+1. **Deposit** into `ShieldedPool` under a precommitment only you can open.
+2. **Witness**: rebuild the pool and association trees from the pool's events and build the withdrawal input.
+3. **Client proof**: a Spartan-WHIR full zero-knowledge proof, about one second on a laptop.
+4. **Send** the proof and its 82 public fields through the mixnet with `topi-client spend`; the exit queues it.
+5. **Exit prover**: checks two queued spends, recurses them into one terminal proof, and signs a settle frame transaction with leanSPHINCS.
+6. **Settle** on chain 8141: `[VERIFY pool, VERIFY paymaster, SENDER settle]`, submitted through the ERC-8421 [alt mempool](/architecture/alt-mempool), emitting `Settled`.

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Topi",
+  "description": "Post-quantum private payments on Ethereum frame transactions: a KEM-Sphinx mixnet, a shielded pool with hash-based proofs, and leanSPHINCS authorization.",
+  "colors": {
+    "primary": "#171717",
+    "light": "#E5E5E5",
+    "dark": "#262626"
+  },
+  "logo": {
+    "light": "/images/logo-light.svg",
+    "dark": "/images/logo-dark.svg"
+  },
+  "favicon": "/images/favicon.svg",
+  "appearance": {
+    "default": "system"
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": ["index", "quickstart", "installation"]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/mixnet",
+              "architecture/rate-limiting",
+              "architecture/shielded-pool",
+              "architecture/proof-system",
+              "architecture/post-quantum-accounts",
+              "architecture/formal-verification",
+              "architecture/alt-mempool",
+              "architecture/security"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/local-network",
+              "guides/aws",
+              "guides/private-payment",
+              "guides/prover",
+              "guides/console"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "SDK",
+        "groups": [
+          {
+            "group": "TypeScript SDK",
+            "pages": [
+              "sdk/overview",
+              "sdk/installation",
+              "sdk/frames",
+              "sdk/pool",
+              "sdk/pq-accounts",
+              "sdk/mixnet-and-prover"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Smart contracts",
+        "groups": [
+          {
+            "group": "Contracts",
+            "pages": [
+              "contracts/overview",
+              "contracts/interfaces",
+              "contracts/deployments",
+              "contracts/foundry"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Command line",
+            "pages": ["reference/topi-node", "reference/topi-client", "reference/console-keys"]
+          },
+          {
+            "group": "Formats",
+            "pages": ["reference/topology", "reference/formats"]
+          },
+          {
+            "group": "Background",
+            "pages": ["reference/benchmarks", "reference/related-work", "reference/glossary"]
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Explorer",
+        "href": "https://dora.privacy.ethrex.xyz"
+      }
+    ]
+  }
+}

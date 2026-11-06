@@ -1,0 +1,72 @@
+---
+title: "Installation"
+description: "Toolchains for the mixnet, contracts, proofs, prover and SDK."
+---
+
+Which toolchains you need depends on the part of Topi you work on.
+
+| Component | Needs |
+|---|---|
+| Mixnet, console (`crates/`) | Rust |
+| Alt mempool sidecar (`mempool/`) | Linux or WSL, Bun |
+| Contracts (`contracts/`) | Foundry |
+| Formal model (`lean/`) | elan (Lean 4) |
+| SDK and scripts (`sdk/`, `scripts/`) | Node.js 24 |
+| Prover (`prover/`) | Linux or WSL, Rust, Python 3, Foundry, 12 GB or more of memory |
+| AWS deployment (`infra/aws/`) | AWS CLI, Terraform 1.6 or later, OpenSSH, bash |
+
+## Rust
+
+The workspace uses edition 2024 and requires Rust 1.88 or later.
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+rustup update stable
+cargo build --release
+```
+
+This builds `topi-node`, `topi-client` and `topi` into `target/release/`. To put them on your `PATH`, run `cargo install --path crates/console && cargo install --path crates/mixnet`, or install from git without a checkout (the repository is private, so this needs access):
+
+```bash
+cargo install --locked --git https://github.com/Naveen-6087/topi topi-tui topi-mixnet
+```
+
+An installed `topi` carries its runtime files and unpacks them into `~/.topi` (or `TOPI_HOME`) when run outside a checkout. See [Use the console](/guides/console#runtime-files).
+ The rate limiter's Binius64 dependency is fetched from git at a pinned commit; the workspace compiles dependencies with `opt-level = 3` even in debug builds because proving is otherwise too slow. Always run tests with `--release`.
+
+## Foundry
+
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+cd contracts && forge build
+```
+
+The contracts compile with solc 0.8.28 through via-IR. The generated Poseidon2 permutation uses a short optimizer step sequence set in `contracts/foundry.toml`; do not override it, or compilation takes far longer. The Yul accounts and paymasters are compiled with `solc --strict-assembly --evm-version prague`.
+
+## Lean
+
+```bash
+curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh
+cd lean && lake build
+```
+
+`lean/lean-toolchain` pins the Lean version; elan installs it on first build.
+
+## Node.js
+
+The SDK and scripts need Node.js 24, which runs TypeScript files directly. `cast` from Foundry is used by some scripts.
+
+```bash
+node --version   # v24.x
+```
+
+## Prover
+
+The prover builds upstream provers from source and needs a Unix environment (on Windows, use WSL). The client proof needs about 450 MB of memory; the exit proof needs about 12 GB and about 19 minutes on a laptop, or about 2.5 minutes on a 32-vCPU AWS instance ([AWS prover](/guides/aws#exit-prover)).
+
+```bash
+bash prover/setup.sh
+```
+
+See [Run the prover](/guides/prover) for the pinned commits and the proving commands.
