@@ -1,0 +1,135 @@
+---
+title: "Deploy to AWS"
+description: "Run the mixnet across four AWS regions with Terraform, and the exit prover on one large instance."
+---
+
+`infra/aws/` deploys one node per role in a different region, so no single jurisdiction or data centre sees a packet's whole path.
+
+| Role | Region | Public ports |
+|---|---|---|
+| Gateway | `ap-south-1` (Mumbai) | 47101 node, 47201 rate limiter, 47250 reply store |
+| Mix | `eu-central-1` (Frankfurt) | 47102 |
+| Exit | `us-east-1` (N. Virginia) | 47103 |
+| Reply relay | `ap-southeast-1` (Singapore) | 47104 |
+
+Every node also exposes its stats port (47300) and SSH to the operator CIDR.
+
+<Warning>
+The deployment bills while it is up: about $0.07 per hour for four `t3.micro` instances, four public IPv4 addresses and four 8 GB gp3 volumes. CPU credits are pinned to `standard`, so there is no burst billing. Run `down` at the end of every session.
+</Warning>
+
+## Prerequisites
+
+- AWS CLI, signed in (`aws login`, SSO or a profile). The script hands the CLI's session to Terraform without writing credentials to disk.
+- Terraform 1.6 or later, OpenSSH, bash, Node.js.
+- A Linux build of `topi-node` (below) and a local build of `topi-node` and `topi-client` for key generation and pings.
+- A member list and an identity: by default `data/members.txt` and `.secrets/member.id` (override with `MEMBERS_FILE` and `MEMBER_IDENTITY`). Create them with `topi-client register`.
+
+## Deploy
+
+<Steps>
+  <Step title="Check the account">
+    ```bash
+    bash infra/aws/deploy.sh whoami
+    bash infra/aws/deploy.sh audit
+    ```
+
+    `audit` scans every enabled region for anything that bills (instances, Elastic IPs, NAT gateways, volumes, snapshots, load balancers, databases, clusters, buckets, hosted zones) and prints one `FOUND` line per resource.
+  </Step>
+  <Step title="Build the Linux binary">
+    ```bash
+    bash infra/aws/build-linux.sh      # on Windows, run inside WSL
+    ```
+
+    It builds `topi-node` for x86-64 Linux with a portable CPU target (`x86-64-v3` with AES and CLMUL) and writes `data/aws/bin/topi-node`. A binary built with `target-cpu=native` can fail on the instances with an illegal-instruction signal.
+  </Step>
+  <Step title="Create the nodes">
+    ```bash
+    bash infra/aws/deploy.sh up
+    ```
+
+    Creates an SSH key on first use, runs `terraform apply`, and writes `data/aws/nodes.txt`. SSH (key-only) and the stats port accept any source by default, because mobile networks rotate addresses. On a fixed network, restrict them: `OPERATOR_CIDR=203.0.113.7/32 bash infra/aws/deploy.sh up`.
+  </Step>
+  <Step title="Provision">
+    ```bash
+    bash infra/aws/deploy.sh provision
+    ```
+
+    Generates node keys locally, writes `data/aws/topology.json` with the nodes' public IPs, uploads the compressed binary, topology and each node's key (with retries), and installs and starts a `mixnode` systemd service. It stops with an error if any node fails.
+  </Step>
+  <Step title="Test">
+    ```bash
+    bash infra/aws/deploy.sh ping
+    bash infra/aws/deploy.sh stats
+    ```
+  </Step>
+</Steps>
+
+## Operate
+
+| Command | Effect |
+|---|---|
+| `launch` | Everything for a demo in one step: identity check, the Linux binary if it is missing, `up`, `provision`, `ping` |
+| `whoami` | The AWS identity the CLI is signed in as |
+| `audit` | Billable resources in every enabled region |
+| `up` | Create the four nodes |
+| `provision` | Keys, topology, binary and service on every node; starts them |
+| `ping` | A round trip through all four regions |
+| `stats` | Each node's counters, one JSON line per node |
+| `fetch-queue` | Copy the exit's queued spends to `data/aws/spend-queue` for the exit prover, skipping spends already handled |
+| `down` | `terraform destroy`, then confirm nothing tagged with the deployment name is left |
+| `verify-down` | Only the confirmation step of `down` |
+
+To send a spend through the deployed network, point `topi-client spend` at `data/aws/topology.json`. After the spends are queued, run `fetch-queue` and then the exit prover.
+
+## Configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DEPLOYMENT_NAME` | `topi` | Resource name prefix and `Project` tag |
+| `OPERATOR_CIDR` | `0.0.0.0/0` | Source allowed for SSH and stats |
+| `MEMBERS_FILE` | `data/members.txt` | Rate-limit member list |
+| `MEMBER_IDENTITY` | `.secrets/member.id` | Identity used by `ping` |
+| `LINUX_TARGET_DIR` | `target/linux` | Cargo target directory for the Linux build |
+
+Secrets (SSH key, node keys) are kept under `.secrets/aws`, which is git-ignored; state is kept under `data/aws`. A `.env` file at the repository root is loaded if present.
+
+## Exit prover
+
+`infra/aws/prover.sh` runs the exit's leanVM recursion on one large instance, started for proving and destroyed afterwards. By default it is a `c7i.8xlarge` spot instance (32 vCPU, 64 GiB) in `ap-south-1`, at about 0.47 USD per hour.
+
+```bash
+bash infra/aws/prover.sh up                      # launch, wait for SSH (about 1 minute)
+bash infra/aws/prover.sh setup                   # toolchain and provers (about 6 minutes, once per instance)
+bash infra/aws/prover.sh prove A.tgz B.tgz OUT   # one recursion there; writes OUT/calldata.bin here
+bash infra/aws/prover.sh status                  # instance, uptime, spot price
+bash infra/aws/prover.sh ssh                     # a shell on it
+bash infra/aws/prover.sh down                    # terminate it, remove its security group and key pair
+```
+
+With `EXIT_PROVER=aws` in `.env`, the console (`r` and `D` on the Wallet tab) and `scripts/exit-prover.ts` send the recursion there.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PROVER_REGION` | `ap-south-1` | Region of the instance |
+| `PROVER_INSTANCE_TYPE` | `c7i.8xlarge` | Instance type |
+| `PROVER_SPOT` | `true` | Spot or on-demand |
+| `PROVER_SSH_CIDR` | any address | Source allowed for SSH |
+
+SSH listens on 22 and 443, since some networks block 22 towards cloud addresses. It is open to any address by default because carrier-grade NAT sends traffic out from a pool of addresses; the instance takes only the key in `.secrets/aws` and lives only while proving. A new account's default vCPU quota (32) fits one such instance.
+
+| Step, two notes to a mined settle | Time |
+|---|---|
+| Deposits, witnesses, client proofs, mixnet sends | about 85 to 90 s |
+| Recursion, warm instance | about 151 s (210 to 332 s on a fresh one; about 1,150 s and 12 GB on a laptop) |
+| Settle through the alt mempool, mined | about 20 s |
+| End to end | about 216 to 301 s |
+
+## Measured runs
+
+| Measurement | Result |
+|---|---|
+| Ping round trip across the four regions | about 3.8 to 10 s (longer when the epoch ticket is proven in the same call) |
+| A 1.3 MB spend (about 282 packets, one token) over a mobile uplink | queued at the exit in about 68 to 78 s |
+| Two spends sent concurrently, then proven and settled | settled on chain 8141 in blocks 557893 and 558272, about 16.3M gas each |
+| Teardown | all resources destroyed; audit finds nothing billable |
