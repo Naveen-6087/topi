@@ -20,3 +20,11 @@ than in a public issue. Include the affected component, a description, and steps
 - The Lean model abstracts the proof system and leanSPHINCS as sound; that the model matches the
   deployed bytecode is checked by differential testing, not proven.
 - The proof systems (Spartan-WHIR, leanVM, Binius64) are research implementations.
+- Chain 8141's ethrex has no ERC-7562 tracer, so the alt mempool there simulates validation untraced.
+  It admits only the whitelisted pool account and paymaster, and its own admission policy stands in for
+  the opcode and storage rules. The pool account and paymaster cannot stake themselves.
+- On the ERC-8421 devnet (chain 1337) the pool uses `DevnetSettle`, which records nullifiers but does
+  not verify the proof; the terminal verifier does not fit the devnet's block gas limit. Proofs are
+  verified on chain 8141 only. The Lean model does not cover `DevnetSettle` or the mempool.
+- The AWS prover instance accepts SSH (key-only) from any address by default, because carrier-grade
+  NAT changes the source address; `PROVER_SSH_CIDR` restricts it. It lives only while proving.

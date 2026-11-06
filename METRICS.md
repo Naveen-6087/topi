@@ -44,4 +44,20 @@ scrape_configs:
       - targets: ["GATEWAY:47400", "MIX:47400", "EXIT:47400", "REPLY_RELAY:47400"]
 ```
 
-On AWS the metrics and stats ports accept only `OPERATOR_CIDR` (see `infra/aws`).
+On AWS the metrics and stats ports accept `OPERATOR_CIDR`, which is any address by default (see
+`infra/aws`); set it on a fixed network.
+
+## Development mempool
+
+The self-contained mempool (`node mempool/src/main.ts`, see `mempool/README.md`) serves `GET /metrics`
+in the same format. The ERC-8421 sidecar the console runs does not; its explorer methods
+(`skandha_explorer_listAdmissions`) show each admission rule by rule instead.
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `altmempool_pending` | gauge | `status` (`pending`, `inflight`) | Settles held |
+| `altmempool_admitted_total` | counter | | Settles admitted |
+| `altmempool_rejected_total` | counter | `reason` | Submissions refused, by rule |
+| `altmempool_dropped_total` | counter | `reason` | Pending settles dropped |
+| `altmempool_released_total` | counter | | Settles handed to the chain |
+| `altmempool_mined_total` | counter | `status` (`success`, `reverted`) | Released settles that were mined |

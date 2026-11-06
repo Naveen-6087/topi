@@ -27,3 +27,4 @@ vendor/
 
 # Built whitepaper (the website keeps its own copy in website/public)
 whitepaper/*.pdf
+demo_run/
