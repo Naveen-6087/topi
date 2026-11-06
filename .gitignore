@@ -1,0 +1,29 @@
+# Local settings and secrets
+.env
+.secrets/
+
+# Runtime data and logs
+data/
+logs/
+
+# Build output
+target/
+node_modules/
+dist/
+.lake/
+contracts/out/
+contracts/cache/
+docs/.mintlify/
+website/.wrangler/
+infra/aws/.terraform/
+infra/aws/*.tfstate*
+*.log
+
+# Local toolchains and upstream clones used during development
+tools/
+pq-spike/
+vendor/
+.cargo-home/
+
+# Built whitepaper (the website keeps its own copy in website/public)
+whitepaper/*.pdf
