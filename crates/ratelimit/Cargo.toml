@@ -1,0 +1,22 @@
+[package]
+name = "topi-ratelimit"
+description = "Post-quantum anonymous per-epoch rate limiting: Binius64 zero-knowledge tickets over SHA-256"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+binius-core = { git = "https://github.com/binius-zk/binius64", rev = "4428e759dd27956bd5b9ae5025d67eb8ccc1accf" }
+binius-frontend = { git = "https://github.com/binius-zk/binius64", rev = "4428e759dd27956bd5b9ae5025d67eb8ccc1accf" }
+binius-circuits = { git = "https://github.com/binius-zk/binius64", rev = "4428e759dd27956bd5b9ae5025d67eb8ccc1accf" }
+binius-prover = { git = "https://github.com/binius-zk/binius64", rev = "4428e759dd27956bd5b9ae5025d67eb8ccc1accf" }
+binius-verifier = { git = "https://github.com/binius-zk/binius64", rev = "4428e759dd27956bd5b9ae5025d67eb8ccc1accf" }
+binius-hash = { git = "https://github.com/binius-zk/binius64", rev = "4428e759dd27956bd5b9ae5025d67eb8ccc1accf" }
+getrandom.workspace = true
+rand = { version = "0.10.1", features = ["std", "std_rng", "thread_rng"] }
+sha2 = "0.11"
+thiserror.workspace = true
+
+[[example]]
+name = "bench"

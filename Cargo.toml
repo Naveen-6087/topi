@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/sphinx"]
+members = ["crates/sphinx", "crates/ratelimit"]
 
 [workspace.package]
 version = "0.1.0"
