@@ -14,10 +14,20 @@ client ─► gateway ─► mix ─► exit             forward: rate-limited, 
 | gateway | admits a packet only with a valid rate-limit token, peels the first layer, holds replies in the reply store, sends cover traffic |
 | mix | collects packets for a batch interval, releases each batch shuffled |
 | exit | reassembles messages, answers pings, queues pool spends for the exit prover |
-| reply relay | first hop of the reply path |
+| reply relay | first hop of the reply path (see [REPLY_RELAY.md](REPLY_RELAY.md)) |
 
 A client never accepts connections: replies wait in the gateway's reply store under a slot only the
 sender knows, sealed to the sender's reply keys, and the client polls for them.
+
+Routes are random over the nodes the topology lists for each role: one gateway per session (it holds
+the client's epoch ticket), one exit per message (it reassembles it), and a fresh mix per packet. If a
+gateway restarts and forgets the ticket, the client registers it again and retries.
+
+## Guides & Deep Dives
+
+- [**Mixnet Architecture & Node Overview**](MIXNET_ARCHITECTURE_OVERVIEW.md): Comprehensive high-level breakdown of the 4 node roles, batch-and-shuffle mechanics, network sizing, and end-to-end privacy guarantees.
+- [**Packet Reassembly & Exit Mechanism**](PACKET_REASSEMBLY_AND_EXIT.md): How out-of-order Sphinx packets are collected, buffered, concatenated, and queued for recursive zero-knowledge proving.
+- [**Reply Relay Architecture**](REPLY_RELAY.md): In-depth breakdown of single-use reply blocks (SURBs) and return paths.
 
 ## Binaries
 
@@ -48,9 +58,13 @@ client's tokens), `events` (counters and log).
 
 ## Wire formats
 
-- Fragment: `kind u8 | message id u64 | index u16 | count u16 | has_surb u8 | [SURB header] | data`.
+- Fragment: `kind u8 | message id u64 | index u16 | count u16 | has_surb u8 | [reply relay id u16] | [SURB header] | data`.
+  `has_surb` is 0 on later fragments; on the first it is 1, or 2 when the reply relay's node id
+  precedes the SURB header. The first fragment holds up to 1,150 bytes of data, each further one 4,656.
 - Spend: `pq-spend/v1 | header length u32 BE | {"fields": [82 field elements]} | client proof (.tar.gz)`.
-- Reply store: `P | slot u16 | packet` stores, `G | slot u16` fetches and removes.
+- Reply store: `P | slot u16 | packet` stores, `G | slot u16` fetches and removes. Requests are
+  fixed-length, so neither side waits for a half-close (a proxy that turned a half-close into a full
+  close used to lose replies).
 - Rate limiter: ticket `1 | len u32 | ticket`, packet `2 | token root | len u16 | token | packet`,
   continuation `3 | token value | packet`.
 
