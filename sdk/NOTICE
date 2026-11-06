@@ -1,0 +1,21 @@
+@topi/sdk
+
+Licensed under either of the Apache License, Version 2.0 or the MIT license, at your option.
+
+This package includes code derived from soispoke/minimal-shielded-pool
+(https://github.com/soispoke/minimal-shielded-pool, commit eb1bc0e7e19dfabc1d4009119beb9aaa04c61e07),
+licensed under the Apache License, Version 2.0:
+
+  src/rlp.ts, src/frames.ts, src/ecdsa.ts and src/bytes.ts port that project's
+  src/frametx.ts, src/bytes.ts and the signTransaction helper of src/spend.ts
+  (RLP, the EIP-8141 frame-transaction envelope and signature hash, the
+  execution-cap and max-gas accounting, and secp256k1 signing).
+
+  Modifications: ARBITRARY signature entries are encoded with an empty signer, as
+  EIP-8141 requires; a full RLP and frame-transaction decoder was added; the
+  input-parsing helpers were reduced and renamed; the code was restructured into
+  separate modules.
+
+That project in turn notes that its src/frametx.ts derives from
+lambdaclass/ethrex's reference type-0x06 frame-transaction encoder
+(Apache-2.0 / MIT).

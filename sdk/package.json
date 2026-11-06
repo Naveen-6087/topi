@@ -1,0 +1,81 @@
+{
+  "name": "@topi/sdk",
+  "version": "0.1.0",
+  "description": "Post-quantum private payments: EIP-8141 frame transactions, the shielded pool, PQ signers, prover and mixnet adapters",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./frames": {
+      "types": "./dist/frames.d.ts",
+      "default": "./dist/frames.js"
+    },
+    "./rlp": {
+      "types": "./dist/rlp.d.ts",
+      "default": "./dist/rlp.js"
+    },
+    "./ecdsa": {
+      "types": "./dist/ecdsa.d.ts",
+      "default": "./dist/ecdsa.js"
+    },
+    "./eip1559": {
+      "types": "./dist/eip1559.d.ts",
+      "default": "./dist/eip1559.js"
+    },
+    "./abi": {
+      "types": "./dist/abi.d.ts",
+      "default": "./dist/abi.js"
+    },
+    "./rpc": {
+      "types": "./dist/rpc.d.ts",
+      "default": "./dist/rpc.js"
+    },
+    "./pool": {
+      "types": "./dist/pool.d.ts",
+      "default": "./dist/pool.js"
+    },
+    "./pq": {
+      "types": "./dist/pq.d.ts",
+      "default": "./dist/pq.js"
+    },
+    "./prover": {
+      "types": "./dist/prover.d.ts",
+      "default": "./dist/prover.js"
+    },
+    "./mixnet": {
+      "types": "./dist/mixnet.d.ts",
+      "default": "./dist/mixnet.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "NOTICE",
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "cp ../LICENSE-APACHE ../LICENSE-MIT . && npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "@noble/curves": "^2.0.0",
+    "@noble/hashes": "^2.0.0"
+  }
+}
