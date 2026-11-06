@@ -1,0 +1,99 @@
+---
+/**
+ * The TOPI mark, redrawn from the banner as round-ended slabs, construction lines and nodes, so it can
+ * be recoloured with the page. `tone` sets the letterform colour.
+ */
+interface Props {
+  tone?: string;
+  class?: string;
+  label?: boolean;
+}
+const { tone = "var(--fg)", class: cls, label = true } = Astro.props;
+const w = 26;
+---
+
+<svg
+  class:list={["logo", cls]}
+  viewBox="0 0 460 150"
+  role={label ? "img" : undefined}
+  aria-label={label ? "Topi" : undefined}
+  aria-hidden={label ? undefined : "true"}
+  style={`--tone:${tone}`}
+>
+  <g class="lines">
+    <path d="M78 22 V48" />
+    <path d="M92 52 V142" />
+    <path d="M150 92 H182" />
+    <path d="M206 32 L170 92" />
+    <path d="M298 62 V142" />
+    <path d="M282 62 H400" />
+    <path d="M412 26 V142" />
+    <path d="M396 50 H430 M396 110 H430" />
+  </g>
+  <g class="slabs" stroke-width={w} stroke-linecap="round" fill="none">
+    <path d="M28 40 H118" />
+    <path d="M92 40 V122" />
+    <circle cx="206" cy="92" r="40" />
+    <path d="M298 122 V62 Q298 40 320 40 H352 Q376 40 376 64 Q376 88 352 88 H318" />
+    <path d="M412 40 V122" />
+  </g>
+  <g class="red" stroke-width={w} fill="none" stroke-linecap="butt">
+    <path d="M206 52 A40 40 0 0 1 246 92" />
+    <path d="M206 132 A40 40 0 0 1 166 92" />
+  </g>
+  <path class="hat" d="M188 12 L238 6 Q248 5 248 15 L248 30 L182 36 L182 22 Q182 13 188 12 Z" />
+  <g class="nodes">
+    <circle class="n-red" cx="22" cy="40" r="12" />
+    <circle class="n-red" cx="206" cy="52" r="7" />
+    <circle class="n-red" cx="170" cy="92" r="7" />
+    <circle class="n-ink" cx="246" cy="92" r="7" />
+    <circle class="n-ink" cx="206" cy="132" r="7" />
+    <circle class="n-red" cx="350" cy="62" r="7" />
+    <circle class="n-ink" cx="92" cy="106" r="7" />
+    <circle class="n-ink" cx="298" cy="110" r="7" />
+    <circle class="n-red" cx="412" cy="50" r="8" />
+    <circle class="n-ink" cx="412" cy="110" r="8" />
+  </g>
+</svg>
+
+<style>
+  .logo {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+  .lines path {
+    fill: none;
+    stroke: var(--tone);
+    stroke-width: 2;
+    opacity: 0.55;
+  }
+  .slabs path,
+  .slabs circle {
+    stroke: var(--tone);
+  }
+  .red path {
+    stroke: var(--red);
+  }
+  .hat {
+    fill: var(--red);
+    transform-origin: 215px 22px;
+    transition: transform 0.5s var(--spring);
+  }
+  .logo:hover .hat {
+    transform: rotate(-8deg) translateY(-3px);
+  }
+  .nodes circle {
+    stroke: var(--bg, var(--paper));
+    stroke-width: 3;
+  }
+  .n-red {
+    fill: var(--red);
+  }
+  .n-ink {
+    fill: var(--ink);
+  }
+  :global(.night) .n-ink {
+    fill: var(--amber);
+  }
+</style>

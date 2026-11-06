@@ -1,0 +1,82 @@
+---
+/** Privacy and cookies: what this site stores (nothing) and which requests leave the browser (one). */
+import Base from "../layouts/Base.astro";
+import Footer from "../components/Footer.astro";
+import PageHeader from "../components/PageHeader.astro";
+import PixelText from "../components/PixelText.astro";
+---
+
+<Base title="Privacy and cookies: Topi" description="This site sets no cookies and runs no analytics. What it does request, and why.">
+  <PageHeader />
+  <main id="main" class="paper page">
+    <article class="wrap prose">
+      <PixelText as="h1" text="Privacy and c{o}okies." />
+      <p class="lead">A site about payments that leave no trace should leave none on you. It doesn't.</p>
+
+      <h2>Cookies</h2>
+      <p>
+        None. The site sets no cookies and keeps nothing in your browser's local or session storage, so there is nothing to
+        consent to and no banner to dismiss.
+      </p>
+
+      <h2>Analytics and trackers</h2>
+      <p>
+        None. There are no analytics scripts, advertising tags, social widgets or third-party embeds. Fonts and images are
+        served from this site.
+      </p>
+
+      <h2>The one request that leaves this site</h2>
+      <p>
+        To show the latest block, your browser asks the chain 8141 testnet's public RPC endpoint,
+        <code>rpc1.privacy.ethrex.xyz</code>, for the block number and the pool's balance and events. That operator sees
+        your IP address and browser, as any web server does. Nothing about you is sent with the request.
+      </p>
+
+      <h2>Hosting</h2>
+      <p>
+        The hosting provider keeps standard request logs (IP address, user agent, time, path) to run and protect the
+        service, under its own privacy policy. This project does not receive or keep them.
+      </p>
+
+      <h2>Security headers</h2>
+      <p>
+        Every page is served with a strict content security policy (scripts from this site only, no framing), HTTPS only,
+        and a referrer policy that sends no paths to other sites.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Report a security issue privately through <a href="https://github.com/Naveen-6087/topi/security/advisories/new">GitHub
+        security advisories</a>; see the <a href="https://github.com/Naveen-6087/topi/blob/main/SECURITY.md">security policy</a>.
+      </p>
+    </article>
+  </main>
+  <Footer />
+</Base>
+
+<style>
+  .page {
+    padding-block: clamp(3rem, 7vw, 6rem);
+  }
+  .prose {
+    max-width: 46rem;
+    display: grid;
+    gap: 1rem;
+  }
+  .prose :global(h1) {
+    font-size: clamp(2.6rem, 6vw, 4.6rem);
+    margin-bottom: 0.5rem;
+  }
+  h2 {
+    font-size: var(--step-1);
+    margin-top: 1.6rem;
+  }
+  p {
+    color: var(--fg-soft);
+  }
+  code {
+    font-size: 0.85em;
+    padding: 0.1em 0.35em;
+    background: var(--paper-2);
+  }
+</style>

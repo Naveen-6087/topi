@@ -1,0 +1,184 @@
+---
+/** Each guarantee in plain words, with the Lean statement it is proven as. */
+import CodeBlock from "./CodeBlock.astro";
+import PixelText from "./PixelText.astro";
+const theorems = [
+  {
+    claim: "Only the settle call ever runs as the pool.",
+    name: "only_settle_runs_as_pool",
+    lean: `theorem only_settle_runs_as_pool (pool : Nat) (tx : Tx)
+    (h : poolPolicy pool tx 0 = .ok ()) :
+    ∃ f2, callsAsSender tx = [f2] ∧ f2.target = pool ∧
+      f2.selector = SETTLE ∧ f2.value = 0`,
+  },
+  {
+    claim: "The pool never pays for its own transactions.",
+    name: "pool_never_pays",
+    lean: `theorem pool_never_pays (pool : Nat) (tx : Tx)
+    (h : poolPolicy pool tx 0 = .ok ()) :
+    ∃ f0 f1 f2, tx.frames = [f0, f1, f2] ∧ f0.flags = SCOPE_EXECUTION ∧
+      f1.flags = SCOPE_PAYMENT ∧ f1.target ≠ pool`,
+  },
+  {
+    claim: "No note can be spent twice, over any history of transactions.",
+    name: "run_distinct",
+    lean: `theorem run_distinct {rootOf : List Nat → Nat} :
+    ∀ (s : State) (txs : List (Bool × Bool × Spend × Spend)),
+      Distinct s.spent → Distinct (run rootOf s txs).spent`,
+  },
+  {
+    claim: "A settle that fails changes nothing, so its notes stay spendable.",
+    name: "failed_settle_changes_nothing",
+    lean: `theorem failed_settle_changes_nothing {rootOf : List Nat → Nat}
+    {s : State} {p q : Bool} {a b : Spend} {e : Err}
+    (h : settle rootOf s p q a b = .error e) : step rootOf s p q a b = s`,
+  },
+  {
+    claim: "The pool's balance always equals the value of its unspent notes: it cannot pay out more than was deposited.",
+    name: "settle_preserves_inv",
+    lean: `theorem settle_preserves_inv {rootOf : List Nat → Nat} {s s' : State}
+    {p q : Bool} {a b : Spend}
+    (inv : Inv s) (sa : Sound s a) (sb : Sound s b) (fr : Fresh s a b)
+    (h : settle rootOf s p q a b = .ok s') : Inv s'`,
+  },
+  {
+    claim: "With the post-quantum paymaster, no signature on the pool's path is ECDSA.",
+    name: "pq_pool_tx_has_no_ecdsa",
+    lean: `theorem pq_pool_tx_has_no_ecdsa (d : Deployment) (tx : Tx)
+    (hpq : d.pqPaymaster = true) (hpp : d.paymaster ≠ d.pool)
+    (h : valid d tx = true) :
+    ∀ s ∈ tx.sigs, s.scheme = ARBITRARY`,
+  },
+];
+---
+
+<section id="proofs" class="night section" aria-labelledby="proofs-title">
+  <div class="wrap proofs">
+    <div class="head">
+      <PixelText id="proofs-title" text="Rules the p{o}ol|cannot break." />
+      <p class="lead">
+        The pool's validation and settlement are modelled in Lean 4 and these properties are proven, with no unfinished
+        proofs and no axioms beyond Lean's standard two. The model is tested against the live chain, transaction by
+        transaction. What it assumes is written down in the soundness statement.
+      </p>
+      <p class="more">
+        <a class="slab slab--line" href="https://github.com/Naveen-6087/topi/blob/main/lean/SOUNDNESS.md">Read the soundness statement</a>
+      </p>
+    </div>
+    <ul class="list">
+      {
+        theorems.map((t, i) => (
+          <li>
+            <details open={i === 0}>
+              <summary>
+                <span class="claim">{t.claim}</span>
+                <svg class="qed" viewBox="0 0 40 40" aria-hidden="true">
+                  <rect class="qed__box" x="6" y="6" width="28" height="28" rx="3" />
+                  <path class="qed__tick" d="M13 21 L18 26 L28 14" />
+                </svg>
+              </summary>
+              <CodeBlock code={t.lean} lang="lean4" title={`${t.name}.lean`} class="proof-code" />
+            </details>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>
+
+<style>
+  .proofs {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+    gap: clamp(2rem, 5vw, 5rem);
+    align-items: start;
+  }
+  .head {
+    position: sticky;
+    top: 2rem;
+    display: grid;
+    gap: 1.4rem;
+  }
+  .list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: var(--line) solid var(--fg);
+  }
+  .list li {
+    border-bottom: 1px solid var(--rule);
+  }
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+    padding-block: 1.3rem;
+    cursor: pointer;
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  .claim {
+    font-family: var(--display);
+    font-size: var(--step-1);
+    font-weight: 520;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    max-width: 34ch;
+    transition: transform 0.35s var(--ease), color 0.25s var(--ease);
+  }
+  summary:hover .claim {
+    transform: translateX(0.35rem);
+  }
+  details[open] .claim {
+    color: var(--fg);
+  }
+  /* The box is the end-of-proof mark; it fills amber and ticks when the proof is open. */
+  .qed {
+    flex: none;
+    width: 2.3rem;
+    height: 2.3rem;
+  }
+  .qed__box {
+    fill: transparent;
+    stroke: var(--fg);
+    stroke-width: 2;
+    transition: fill 0.35s var(--ease), stroke 0.35s var(--ease), transform 0.45s var(--spring);
+    transform-origin: center;
+    transform-box: fill-box;
+  }
+  .qed__tick {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 24;
+    stroke-dashoffset: 24;
+    transition: stroke-dashoffset 0.45s var(--ease) 0.15s;
+  }
+  details[open] .qed__box {
+    fill: var(--amber);
+    stroke: var(--amber);
+    transform: rotate(-8deg);
+  }
+  details[open] .qed__tick {
+    stroke-dashoffset: 0;
+  }
+  summary:hover .qed__box {
+    transform: rotate(8deg) scale(1.06);
+  }
+  .list :global(.proof-code) {
+    margin-bottom: 1.5rem;
+  }
+  @media (max-width: 60rem) {
+    .proofs {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .head {
+      position: static;
+    }
+  }
+</style>

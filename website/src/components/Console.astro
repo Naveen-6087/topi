@@ -1,0 +1,521 @@
+---
+/**
+ * The terminal console: a live replica of `topi` (the same palette, seam and wordmark as the real one),
+ * and how to install it on each platform.
+ */
+import PixelText from "./PixelText.astro";
+
+const REPO = "https://github.com/Naveen-6087/topi";
+const LATEST = `${REPO}/releases/latest/download`;
+const platforms = [
+  {
+    id: "cargo",
+    name: "Cargo",
+    note: "recommended",
+    lines: [
+      `cargo install --locked --git ${REPO} topi-tui topi-mixnet`,
+      "topi",
+    ],
+  },
+  {
+    id: "macos",
+    name: "macOS",
+    note: "Apple silicon",
+    lines: [
+      `curl -L ${LATEST}/topi-aarch64-apple-darwin.tar.gz | tar xz`,
+      "./topi-aarch64-apple-darwin/topi",
+    ],
+  },
+  {
+    id: "linux",
+    name: "Linux",
+    note: "x86-64",
+    lines: [
+      `curl -L ${LATEST}/topi-x86_64-unknown-linux-gnu.tar.gz | tar xz`,
+      "./topi-x86_64-unknown-linux-gnu/topi",
+    ],
+  },
+  {
+    id: "windows",
+    name: "Windows",
+    note: "PowerShell",
+    lines: [
+      `iwr ${LATEST}/topi-x86_64-pc-windows-msvc.zip -OutFile topi.zip`,
+      "Expand-Archive topi.zip .",
+      ".\\topi-x86_64-pc-windows-msvc\\topi.exe",
+    ],
+  },
+  {
+    id: "source",
+    name: "From source",
+    note: "any platform with Rust",
+    lines: [`git clone ${REPO} topi && cd topi`, "cargo run --release -p topi-tui"],
+  },
+];
+const WORD = ["▀█▀ █▀█ █▀█ █", " █  █ █ █▀▀ █", " █  █▄█ █   █"];
+const tabs = ["wallet", "mixnet map", "chain"];
+---
+
+<section id="console" class="night console" aria-labelledby="console-title">
+  <div class="wrap">
+    <div class="head">
+      <PixelText id="console-title" text="The c{o}ntrol room." />
+      <p class="lead">One terminal for the whole system: the network on a map, the cloud, the wallet, the prover and the proofs.</p>
+    </div>
+
+    <figure class="tui" data-tui aria-label="The topi console, showing its overview tab">
+      <div class="row head-row">
+        <span><b class="fg">▀█▀ topi</b><span class="dim">&nbsp; leave no trace</span></span>
+        <span class="status"><i class="sq ok"></i>local 4/4 <i class="sq amber"></i>block <b class="fg" data-block>641,154</b></span>
+      </div>
+      <div class="row tabs">
+        {
+          tabs.map((t, i) => (
+            <span class={i === 0 ? "tab on" : "tab"}>
+              <span class={i === 0 ? "red" : "dim"}>{i + 1}</span> {t}
+            </span>
+          ))
+        }
+      </div>
+      <div class="row seam" data-seam aria-hidden="true"></div>
+      <div class="body">
+        <div class="panel brand">
+          <pre data-word aria-hidden="true">{WORD.join("\n")}</pre>
+          <p class="dim">leave no trace</p>
+        </div>
+        <div class="panel live">
+          <p class="title"><i class="red">■</i> live</p>
+          <p><span class="dim">nodes up</span><span>4/4</span></p>
+          <p><span class="dim">packets relayed</span><span data-count="relayed">18,402</span></p>
+          <p><span class="dim">batches</span><span data-count="batches">612</span></p>
+          <p><span class="dim">cover packets</span><span data-count="cover">3,977</span></p>
+          <p><span class="dim">Lean</span><span>14 theorems, all checked</span></p>
+        </div>
+        <div class="panel path">
+          <p class="title"><i class="red">■</i> a private spend's path</p>
+          <pre data-route aria-hidden="true"></pre>
+        </div>
+      </div>
+      <div class="row foot">
+        <span><b class="red">l</b> start local &nbsp;<b class="red">k</b> stop local &nbsp;<b class="red">p</b> ping &nbsp;<b class="red">z</b> zoom map</span>
+        <span class="dim">tab switch &nbsp;o site &nbsp;g github &nbsp;j jobs &nbsp;q quit</span>
+      </div>
+    </figure>
+
+    <div class="install" data-install>
+      <div class="os" role="tablist" aria-label="Platform">
+        {
+          platforms.map((p, i) => (
+            <button type="button" role="tab" id={`os-${p.id}`} aria-controls={`cmd-${p.id}`} aria-selected={i === 0 ? "true" : "false"} tabindex={i === 0 ? 0 : -1}>
+              <span>{p.name}</span>
+              <small>{p.note}</small>
+            </button>
+          ))
+        }
+      </div>
+      {
+        platforms.map((p, i) => (
+          <div class="cmd" role="tabpanel" id={`cmd-${p.id}`} aria-labelledby={`os-${p.id}`} hidden={i !== 0}>
+            <div class="lines">
+              {p.lines.map((l) => (
+                <code class="ln">
+                  <span class="prompt">{p.id === "windows" ? ">" : "$"} </span>{l}
+                </code>
+              ))}
+            </div>
+            <button type="button" class="copy" data-copy={p.lines.join("\n")}>
+              Copy
+            </button>
+          </div>
+        ))
+      }
+      <p class="fine">
+        The console runs from a checkout of the repository: its actions call the scripts and contracts there. Prebuilt
+        binaries come with each tagged <a href={`${REPO}/releases`}>release</a>; the node and client binaries are in the same
+        archive.
+      </p>
+    </div>
+  </div>
+</section>
+
+<script>
+  const tui = document.querySelector<HTMLElement>("[data-tui]");
+  if (tui) {
+    const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const seam = tui.querySelector<HTMLElement>("[data-seam]")!;
+    const route = tui.querySelector<HTMLElement>("[data-route]")!;
+    const word = tui.querySelector<HTMLElement>("[data-word]")!;
+    const GLYPHS = ["▀", "▘", "▝", "▀", " ", " "];
+    const cols = () => Math.max(20, Math.floor(seam.clientWidth / (seam.querySelector("span")?.offsetWidth || 8)));
+    let tick = 0;
+    let pattern: string[] = [];
+
+    // The seam: pixels that change slowly, and one packet sliding along it.
+    const drawSeam = () => {
+      const n = cols();
+      if (pattern.length !== n || tick % 25 === 0) pattern = Array.from({ length: n }, () => GLYPHS[Math.floor(Math.random() * GLYPHS.length)]);
+      const at = Math.floor(tick / 2) % (n + 20);
+      seam.innerHTML = pattern.map((g, i) => (i === at ? '<span class="red">■</span>' : `<span>${g}</span>`)).join("");
+    };
+
+    // The route: you, gateway, mix, exit, chain, with payments travelling it, amber once past the exit.
+    const STOPS = [
+      { at: 0, label: "you" },
+      { at: 14, label: "Mumbai" },
+      { at: 30, label: "Frankfurt" },
+      { at: 48, label: "N. Virginia" },
+      { at: 62, label: "chain" },
+    ];
+    const WIDTH = 66;
+    const packets = [0, 17, 34, 51];
+    const drawRoute = () => {
+      const line = Array.from({ length: WIDTH }, () => '<span class="dim">─</span>');
+      for (const s of STOPS) line[s.at] = `<span class="${s.label === "chain" ? "amber" : "fg"}">◉</span>`;
+      for (const p of packets) {
+        const x = (p + tick) % WIDTH;
+        if (STOPS.some((s) => s.at === x)) continue;
+        line[x] = `<span class="${x > 48 ? "amber" : "red"}">■</span>`;
+      }
+      const labels = Array.from({ length: WIDTH + 12 }, () => " ");
+      for (const s of STOPS) [...s.label].forEach((c, i) => (labels[s.at + i] = c));
+      route.innerHTML = `${line.join("")}\n<span class="dim">${labels.join("")}</span>`;
+    };
+
+    // The wordmark decodes out of pixel noise when it is first seen, like the real console.
+    const NOISE = ["▚", "▞", "▖", "▝"];
+    const decode = () => {
+      const target = word.textContent ?? "";
+      let step = 0;
+      const timer = setInterval(() => {
+        step += 1;
+        word.innerHTML = [...target]
+          .map((ch, i) => {
+            const settled = ch === " " || ch === "\n" || Math.random() < step / 16;
+            const glyph = settled ? ch : NOISE[Math.floor(Math.random() * 4)];
+            const col = i - target.lastIndexOf("\n", i - 1) - 1;
+            return ch === "\n" ? "\n" : `<span class="${col >= 4 && col < 7 ? "red" : "fg"}">${glyph}</span>`;
+          })
+          .join("");
+        if (step >= 16) clearInterval(timer);
+      }, 70);
+    };
+
+    // Counters creep up as the network runs.
+    const counts = [...tui.querySelectorAll<HTMLElement>("[data-count]")];
+    const bump = () =>
+      counts.forEach((el) => {
+        const v = Number(el.textContent!.replace(/,/g, "")) + Math.floor(Math.random() * (el.dataset.count === "batches" ? 2 : 9));
+        el.textContent = v.toLocaleString("en-US");
+      });
+
+    let running = false;
+    new IntersectionObserver(([e]) => {
+      if (e.isIntersecting && !running && !tui.dataset.seen) {
+        tui.dataset.seen = "1";
+        decode();
+      }
+      running = e.isIntersecting;
+    }).observe(tui);
+    drawSeam();
+    drawRoute();
+    setInterval(() => {
+      if (!running) return;
+      tick += 1;
+      drawSeam();
+      drawRoute();
+      if (tick % 12 === 0) bump();
+    }, calm ? 160 : 80);
+  }
+
+  // Platform tabs and copy buttons.
+  for (const box of document.querySelectorAll<HTMLElement>("[data-install]")) {
+    const tabs = [...box.querySelectorAll<HTMLButtonElement>("[role=tab]")];
+    const select = (tab: HTMLButtonElement) =>
+      tabs.forEach((t) => {
+        const on = t === tab;
+        t.setAttribute("aria-selected", String(on));
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute("aria-controls")!)!.hidden = !on;
+      });
+    tabs.forEach((tab, i) => {
+      tab.addEventListener("click", () => select(tab));
+      tab.addEventListener("keydown", (e) => {
+        const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+        if (!step) return;
+        const next = tabs[(i + step + tabs.length) % tabs.length];
+        next.focus();
+        select(next);
+      });
+    });
+    // Open on the reader's own platform when it can be told.
+    const ua = navigator.userAgent;
+    const guess = /Windows/.test(ua) ? "windows" : /Mac/.test(ua) ? "macos" : /Linux/.test(ua) ? "linux" : null;
+    const mine = tabs.find((t) => t.id === `os-${guess}`);
+    if (mine) select(mine);
+    for (const b of box.querySelectorAll<HTMLButtonElement>("[data-copy]")) {
+      b.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(b.dataset.copy ?? "");
+          b.textContent = "Copied";
+        } catch {
+          b.textContent = "Select and copy";
+        }
+        setTimeout(() => (b.textContent = "Copy"), 1600);
+      });
+    }
+  }
+</script>
+
+<style>
+  .console {
+    padding-block: clamp(4rem, 9vw, 7rem);
+  }
+  .head {
+    display: grid;
+    justify-items: center;
+    gap: 1rem;
+    text-align: center;
+    margin-bottom: clamp(2rem, 5vw, 3.5rem);
+  }
+  .head :global(h2) {
+    font-size: clamp(2.4rem, 5.5vw, 4.6rem);
+  }
+  .head .lead {
+    max-width: 44ch;
+  }
+
+  /* The replica: terminal metrics, the console's own palette. */
+  .tui {
+    --t-red: #ff4a24;
+    --t-amber: #f5b83d;
+    --t-ok: #7dd3b0;
+    --t-fg: #eceae3;
+    --t-mute: #a29d94;
+    --t-dim: #64605a;
+    --t-line: #34312d;
+    max-width: 62rem;
+    margin: 0 auto;
+    padding: 0.9rem 1.1rem 0.7rem;
+    background: #0e0d0c;
+    border: 1px solid var(--t-line);
+    border-radius: 0.8rem;
+    box-shadow:
+      0 0 0 1px #000,
+      0 2rem 5rem -2rem rgba(255, 74, 36, 0.18);
+    font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: clamp(0.62rem, 1.15vw, 0.82rem);
+    line-height: 1.45;
+    color: var(--t-fg);
+  }
+  .tui :global(.red) {
+    color: var(--t-red);
+  }
+  .tui :global(.amber) {
+    color: var(--t-amber);
+  }
+  .tui :global(.fg) {
+    color: var(--t-fg);
+  }
+  .tui :global(.dim) {
+    color: var(--t-dim);
+  }
+  .tui p {
+    margin: 0;
+    max-width: none;
+  }
+  .tui pre {
+    margin: 0;
+    font: inherit;
+    white-space: pre;
+  }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .status {
+    color: var(--t-mute);
+  }
+  .sq {
+    display: inline-block;
+    width: 0.6em;
+    height: 0.6em;
+    margin: 0 0.4em 0 1.2em;
+  }
+  .sq.ok {
+    background: var(--t-ok);
+  }
+  .sq.amber {
+    background: var(--t-amber);
+  }
+  .tabs {
+    justify-content: flex-start;
+    gap: 1.6em;
+    margin-top: 0.9em;
+    color: var(--t-mute);
+  }
+  .tab.on {
+    color: var(--t-fg);
+    font-weight: 700;
+  }
+  .seam {
+    justify-content: flex-start;
+    gap: 0;
+    color: var(--t-line);
+  }
+  .body {
+    display: grid;
+    grid-template-columns: 15em minmax(0, 1fr);
+    gap: 0.6em;
+    margin-top: 0.4em;
+  }
+  .panel {
+    border: 1px solid var(--t-line);
+    padding: 0.7em 1em;
+    min-width: 0;
+  }
+  .title {
+    margin-bottom: 0.5em !important;
+    font-weight: 700;
+  }
+  .title i {
+    font-style: normal;
+  }
+  .brand {
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 0.6em;
+    grid-row: span 2;
+  }
+  .brand pre {
+    font-weight: 700;
+    line-height: 1.15;
+  }
+  .live p:not(.title) {
+    display: flex;
+    justify-content: space-between;
+    gap: 1em;
+  }
+  .live span:last-child {
+    font-variant-numeric: tabular-nums;
+  }
+  .path {
+    overflow: hidden;
+  }
+  .foot {
+    margin-top: 0.6em;
+    color: var(--t-mute);
+  }
+
+  .install {
+    max-width: 62rem;
+    margin: clamp(2rem, 4vw, 3rem) auto 0;
+  }
+  .os {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border: 1px solid var(--rule);
+    border-bottom: 0;
+  }
+  .os button {
+    display: grid;
+    gap: 0.1rem;
+    padding: 0.85rem 1rem;
+    text-align: left;
+    font: inherit;
+    color: var(--fg-mute);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: color 0.2s var(--ease), background-color 0.2s var(--ease);
+  }
+  .os button + button {
+    border-left: 1px solid var(--rule);
+  }
+  .os button span {
+    font-weight: 600;
+  }
+  .os button small {
+    font-family: var(--code);
+    font-size: 0.66rem;
+  }
+  .os button:hover {
+    color: var(--fg);
+  }
+  .os button[aria-selected="true"] {
+    color: var(--fg);
+    background: var(--surface);
+    box-shadow: inset 0 2px 0 var(--red);
+  }
+  .cmd {
+    position: relative;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+  }
+  .cmd[hidden] {
+    display: none;
+  }
+  .cmd .lines {
+    margin: 0;
+    padding: 1.2rem 6rem 1.3rem 1.2rem;
+    overflow-x: auto;
+    font-family: var(--code);
+    font-size: 0.78rem;
+    line-height: 1.9;
+  }
+  .ln {
+    display: block;
+    white-space: pre;
+  }
+  .prompt {
+    color: var(--red);
+    user-select: none;
+  }
+  .copy {
+    position: absolute;
+    top: 0.8rem;
+    right: 0.8rem;
+    font: inherit;
+    font-size: 0.75rem;
+    color: var(--fg);
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 0.3rem 0.9rem;
+    cursor: pointer;
+  }
+  .copy:hover {
+    border-color: var(--red);
+  }
+  .fine {
+    margin-top: 1rem;
+    font-size: var(--step--1);
+    color: var(--fg-mute);
+    max-width: 70ch;
+  }
+
+  @media (max-width: 48rem) {
+    .body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .brand {
+      grid-row: auto;
+    }
+    .foot span:last-child,
+    .status {
+      display: none;
+    }
+    .os {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .os button:nth-child(3) {
+      border-left: 0;
+    }
+    .os button:nth-child(n + 3) {
+      border-top: 1px solid var(--rule);
+    }
+  }
+</style>

@@ -1,0 +1,66 @@
+---
+/**
+ * A heading in the display face with some letters set as pixel glyphs. Mark a pixel letter with braces,
+ * "n{o}", and a line break with "|". On first view the letters decode out of pixel noise; with `live`,
+ * a letter now and then flickers into its pixel form again, as if being encrypted.
+ */
+import { GLYPHS, glyphRects } from "../lib/glyphs";
+
+interface Props {
+  text: string;
+  as?: "h1" | "h2" | "p";
+  live?: boolean;
+  class?: string;
+  id?: string;
+}
+const { text, as: Tag = "h2", live = false, class: cls, id } = Astro.props;
+const plain = text.replace(/[{}]/g, "").replace(/\|/g, " ");
+
+type Piece = { ch: string; pixel: boolean };
+const lines = text.split("|").map((line) => {
+  const pieces: Piece[] = [];
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === "{" && line[i + 2] === "}" && GLYPHS[line[i + 1]]) {
+      pieces.push({ ch: line[i + 1], pixel: true });
+      i += 2;
+    } else pieces.push({ ch: line[i], pixel: false });
+  }
+  // group into words so a word never breaks across lines
+  const words: Piece[][] = [[]];
+  for (const p of pieces) {
+    if (p.ch === " ") words.push([]);
+    else words[words.length - 1].push(p);
+  }
+  return words.filter((w) => w.length);
+});
+---
+
+<Tag class:list={["ptype", cls]} id={id} aria-label={plain} data-pixel-type={live ? "live" : ""}>
+  {
+    lines.map((words) => (
+      <span class="pline" aria-hidden="true">
+        {words.map((word, wi) => (
+          <>
+            {wi > 0 && " "}
+            <span class="pword">
+              {word.map((p) =>
+                p.pixel ? (
+                  <svg class="pg" viewBox="0 0 5 9" set:html={glyphRects(p.ch)} />
+                ) : (
+                  <span class="ch" data-c={p.ch}>
+                    {p.ch}
+                  </span>
+                ),
+              )}
+            </span>
+          </>
+        ))}
+      </span>
+    ))
+  }
+</Tag>
+
+<script>
+  import { mountPixelType } from "../scripts/pixel-type";
+  mountPixelType();
+</script>

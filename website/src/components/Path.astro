@@ -1,0 +1,228 @@
+---
+/** The life of one payment. A real sequence, so the steps are numbered. */
+import PixelText from "./PixelText.astro";
+const steps = [
+  {
+    title: "Deposit",
+    tone: "red",
+    body: "Funds enter the pool as a note only you can spend, signed with a hash-based key.",
+    figure: "one frame transaction, about 7.5M gas",
+  },
+  {
+    title: "Prove",
+    tone: "red",
+    body: "Your wallet proves it owns an unspent note without saying which.",
+    figure: "about a second to prove, 450 MB of memory",
+  },
+  {
+    title: "Send",
+    tone: "ink",
+    body: "The proof leaves as identical 8 KB packets through three post-quantum hops.",
+    figure: "about a minute on a mobile connection",
+  },
+  {
+    title: "Aggregate",
+    tone: "amber",
+    body: "The exit pairs your spend with another and folds both proofs into one.",
+    figure: "12 to 20 minutes on one machine",
+  },
+  {
+    title: "Settle",
+    tone: "amber",
+    body: "One transaction verifies the proof and pays both recipients.",
+    figure: "16.3M gas",
+  },
+];
+---
+
+<section id="path" class="paper section" aria-labelledby="path-title">
+  <div class="wrap">
+    <div class="intro">
+      <PixelText id="path-title" text="Five steps, n{o} trail." />
+      <p class="lead">Every figure was measured on the testnet.</p>
+    </div>
+    <ol class="steps">
+      {
+        steps.map((s, i) => (
+          <li class={`step tone-${s.tone}`}>
+            <span class="index" aria-hidden="true">
+              {i + 1}
+            </span>
+            <span class="dot" aria-hidden="true" />
+            <div class="text">
+              <h3>{s.title}</h3>
+              <p>{s.body}</p>
+              <p class="figure">{s.figure}</p>
+            </div>
+          </li>
+        ))
+      }
+    </ol>
+  </div>
+</section>
+
+<style>
+  .intro {
+    display: grid;
+    gap: 1.2rem;
+    margin-bottom: clamp(2.5rem, 6vw, 5rem);
+    max-width: 44rem;
+  }
+  .tone-red {
+    --c: var(--red);
+  }
+  .tone-ink {
+    --c: var(--fg);
+  }
+  .tone-amber {
+    --c: var(--amber);
+  }
+
+  .steps {
+    --rail: clamp(4.5rem, 9vw, 7.5rem);
+    position: relative;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    view-timeline: --steps block;
+  }
+  /* The rail, drawn in the three signal colours in the order the payment meets them. */
+  .steps::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--rail) - 1px);
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: linear-gradient(var(--red) 0 38%, var(--fg) 38% 58%, var(--amber) 58% 100%);
+    animation: draw linear both;
+    animation-timeline: --steps;
+    animation-range: entry 20% exit 60%;
+  }
+  @keyframes draw {
+    from {
+      clip-path: inset(0 0 100% 0);
+    }
+    to {
+      clip-path: inset(0 0 0 0);
+    }
+  }
+  /* The payment itself rides the rail as you read. */
+  .steps::after {
+    content: "";
+    position: absolute;
+    z-index: 2;
+    left: var(--rail);
+    top: 0;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: -0.75rem 0 0 -0.75rem;
+    border-radius: 50%;
+    background: var(--red);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--red) 22%, transparent), 0 0 24px var(--red);
+    animation: ride linear both;
+    animation-timeline: --steps;
+    animation-range: entry 20% exit 60%;
+  }
+  @keyframes ride {
+    0% {
+      top: 0;
+    }
+    55% {
+      background: var(--red);
+    }
+    62% {
+      background: var(--amber);
+      box-shadow: 0 0 0 5px color-mix(in srgb, var(--amber) 25%, transparent), 0 0 24px var(--amber);
+    }
+    100% {
+      top: 100%;
+      background: var(--amber);
+      box-shadow: 0 0 0 5px color-mix(in srgb, var(--amber) 25%, transparent), 0 0 24px var(--amber);
+    }
+  }
+
+  .step {
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--rail) 1fr;
+  }
+  .index {
+    grid-column: 1;
+    padding-top: 1.6rem;
+    font-family: var(--display);
+    font-size: var(--step-3);
+    font-weight: 300;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: var(--fg-mute);
+  }
+  .dot {
+    position: absolute;
+    left: var(--rail);
+    top: 2.15rem;
+    width: 1.05rem;
+    height: 1.05rem;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid var(--c);
+    transform: translateX(-50%);
+  }
+  /* Each node fills and its number takes the step's colour as the step reaches the middle of the screen. */
+  @supports (animation-timeline: view()) {
+    .dot {
+      animation: fill linear both;
+      animation-timeline: view();
+      animation-range: cover 30% cover 45%;
+    }
+    .index {
+      animation: tint linear both;
+      animation-timeline: view();
+      animation-range: cover 30% cover 45%;
+    }
+    @keyframes fill {
+      to {
+        background: var(--c);
+        transform: translateX(-50%) scale(1.25);
+      }
+    }
+    @keyframes tint {
+      to {
+        color: var(--c);
+        font-weight: 600;
+      }
+    }
+  }
+  .text {
+    grid-column: 2;
+    display: grid;
+    gap: 0.6rem;
+    padding: 1.6rem 0 1.6rem clamp(1.5rem, 4vw, 3rem);
+  }
+  .step + .step .text {
+    border-top: 1px solid var(--rule);
+  }
+  h3 {
+    font-size: var(--step-2);
+  }
+  .text p:not(.figure) {
+    color: var(--fg-soft);
+  }
+  .figure {
+    justify-self: start;
+    margin-top: 0.3rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: 999px;
+    font-size: var(--step--1);
+    font-weight: 500;
+    color: var(--fg);
+    background: color-mix(in srgb, var(--c) 16%, transparent);
+  }
+
+  @supports not (animation-timeline: view()) {
+    .steps::after {
+      display: none;
+    }
+  }
+</style>

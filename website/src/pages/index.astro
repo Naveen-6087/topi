@@ -1,0 +1,39 @@
+---
+import Base from "../layouts/Base.astro";
+import Architecture from "../components/Architecture.astro";
+import Build from "../components/Build.astro";
+import Console from "../components/Console.astro";
+import Divider from "../components/Divider.astro";
+import Flow from "../components/Flow.astro";
+import Footer from "../components/Footer.astro";
+import GetStarted from "../components/GetStarted.astro";
+import Hero from "../components/Hero.astro";
+import Mixnet from "../components/Mixnet.astro";
+import Path from "../components/Path.astro";
+import Proofs from "../components/Proofs.astro";
+import Quantum from "../components/Quantum.astro";
+import Shield from "../components/Shield.astro";
+---
+
+<Base>
+  <Hero />
+  <main id="main">
+    <Flow />
+    <Divider from="night" to="paper" seed={1} />
+    <Shield />
+    <Path />
+    <Divider from="paper" to="night" seed={2} />
+    <Mixnet />
+    <Divider from="night" to="paper" seed={3} />
+    <Quantum />
+    <Architecture />
+    <Divider from="paper" to="night" seed={4} />
+    <Proofs />
+    <Divider from="night" to="paper" seed={5} />
+    <Build />
+    <Divider from="paper" to="night" seed={6} />
+    <Console />
+    <GetStarted />
+  </main>
+  <Footer />
+</Base>

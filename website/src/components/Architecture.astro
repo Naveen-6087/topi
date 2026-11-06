@@ -1,0 +1,424 @@
+---
+/**
+ * The system as a closed isometric block that breaks open as the reader scrolls: five plates, top to bottom
+ * in the order a payment crosses them. Once open, a packet drops through all of them, red until the exit
+ * folds it into a proof, amber after. Browsers without scroll-driven animation, and readers who prefer
+ * reduced motion, see it open.
+ */
+import PixelText from "./PixelText.astro";
+const W = 150; // half-width of a plate
+const H = W * 0.5774; // half-height: 30 degree isometric
+const T = 14; // plate thickness
+const CX = 450;
+const Y0 = 118;
+const S = 118; // open spacing
+const CLOSED = T + 3; // closed spacing
+const layers = [
+  { tone: "red", name: "Wallet", body: "Proves it owns an unspent note with Spartan-WHIR, in about a second, without saying which note.", rests: "hash functions" },
+  { tone: "ink", name: "Mixnet", body: "8 KB KEM-Sphinx packets sealed with X-Wing (ML-KEM-768 and X25519) at each of three hops, mixed in batches with cover traffic.", rests: "lattices" },
+  { tone: "ink", name: "Rate limiting", body: "A Binius64 ticket each epoch proves membership anonymously; cheap hash tokens then pay for each packet.", rests: "hash functions" },
+  { tone: "amber", name: "Exit", body: "Checks each spend against the chain and folds two proofs into one with leanVM recursion.", rests: "hash functions" },
+  { tone: "amber", name: "Chain", body: "One EIP-8141 frame transaction verifies the proof with WHIR; a leanSPHINCS signature authorizes the paymaster.", rests: "hash functions" },
+].map((l, i) => ({ ...l, y: Y0 + i * S, side: i % 2 ? "right" : "left" }));
+const MID = Y0 + 2 * S;
+const VIEW_W = 900;
+const VIEW_H = Y0 + 4 * S + H + T + 40;
+const closedShift = (i: number) => MID + (i - 2) * CLOSED - (Y0 + i * S);
+
+const top = (y: number) => `${CX},${y - H} ${CX + W},${y} ${CX},${y + H} ${CX - W},${y}`;
+const left = (y: number) => `${CX - W},${y} ${CX},${y + H} ${CX},${y + H + T} ${CX - W},${y + T}`;
+const right = (y: number) => `${CX + W},${y} ${CX},${y + H} ${CX},${y + H + T} ${CX + W},${y + T}`;
+const face = (y: number) => `matrix(${W / 100} ${H / 100} ${-W / 100} ${H / 100} ${CX} ${y - H})`;
+
+const START = 20;
+const END = VIEW_H - 20;
+const FALL = 3.2;
+const CYCLE = 4;
+const exitT = ((layers[3].y - START) / (END - START)) * (FALL / CYCLE);
+const pct = (y: number) => `${((y / VIEW_H) * 100).toFixed(2)}%`;
+---
+
+<section id="architecture" class="paper arch-scroll" aria-labelledby="arch-title">
+  <div class="pin">
+    <div class="wrap head">
+      <PixelText id="arch-title" text="Open the b{o}x." />
+      <p class="lead">
+        Five layers between your wallet and the chain, each one post-quantum.
+      </p>
+    </div>
+
+    <div class="arch" data-arch style={`--ratio:${VIEW_W / VIEW_H}`}>
+      <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} role="img" aria-labelledby="arch-svg-title">
+        <title id="arch-svg-title">Five stacked layers: wallet, mixnet, rate limiting, exit and chain</title>
+
+        <g class="drop-path">
+          <line x1={CX} y1={START} x2={CX} y2={END} />
+          <rect class="drop" x={CX - 4} width="8" height="8">
+            <animate attributeName="y" values={`${START};${END};${END}`} keyTimes={`0;${FALL / CYCLE};1`} dur={`${CYCLE}s`} repeatCount="indefinite" />
+            <animate attributeName="fill" values="#ff4a24;#ff4a24;#f5b83d;#f5b83d" keyTimes={`0;${exitT};${exitT + 0.01};1`} dur={`${CYCLE}s`} repeatCount="indefinite" />
+          </rect>
+        </g>
+
+        {
+          // Drawn bottom plate first, so each plate sits in front of the one below it.
+          [...layers.entries()].reverse().map(([i, l]) => (
+            <g class={`layer tone-${l.tone}`} data-i={i} style={`--from:${closedShift(i)}px`}>
+              <g class="lift">
+                <polygon class="side side--l" points={left(l.y)} />
+                <polygon class="side side--r" points={right(l.y)} />
+                <polygon class="face" points={top(l.y)} />
+                <g transform={face(l.y)} class="art">
+                  {i === 0 &&
+                    Array.from({ length: 25 }, (_, k) => (
+                      <rect x={16 + (k % 5) * 15} y={16 + Math.floor(k / 5) * 15} width="8" height="8" class={k === 12 ? "hot" : "ink"} />
+                    ))}
+                  {i === 1 && (
+                    <g>
+                      <polyline class="wire" points="20,24 50,56 80,30" />
+                      <polyline class="wire wire--back" points="80,30 72,80 50,56" />
+                      {[[20, 24], [50, 56], [80, 30], [72, 80]].map(([x, y], k) => (
+                        <rect x={x - 6} y={y - 6} width="12" height="12" class={k === 3 ? "hub hub--alt" : "hub"} />
+                      ))}
+                    </g>
+                  )}
+                  {i === 2 &&
+                    Array.from({ length: 16 }, (_, k) => (
+                      <rect x={20 + (k % 4) * 17} y={20 + Math.floor(k / 4) * 17} width="11" height="11" class={k < 5 ? "spent" : k === 5 ? "token token--next" : "token"} />
+                    ))}
+                  {i === 3 && (
+                    <g>
+                      <rect class="proof" x="14" y="16" width="26" height="26" />
+                      <rect class="proof" x="14" y="58" width="26" height="26" />
+                      <polyline class="wire" points="40,29 58,50 40,71" />
+                      <rect class="proof proof--one" x="60" y="36" width="28" height="28" />
+                    </g>
+                  )}
+                  {i === 4 &&
+                    Array.from({ length: 4 }, (_, k) => (
+                      <rect class={k === 3 ? "block block--new" : "block"} x={8 + k * 22} y="36" width="16" height="28" />
+                    ))}
+                </g>
+              </g>
+            </g>
+          ))
+        }
+
+        {
+          layers.map((l, i) => (
+            <path
+              class="leader"
+              data-i={i}
+              style={`--i:${i}`}
+              d={`M${l.side === "left" ? CX - W - 8 : CX + W + 8} ${l.y} H${l.side === "left" ? 250 : 650}`}
+            />
+          ))
+        }
+      </svg>
+
+      {
+        layers.map((l, i) => (
+          <div class={`callout callout--${l.side} tone-${l.tone}`} data-i={i} style={`top:${pct(l.y)}; --i:${i}`}>
+            <h3>{l.name}</h3>
+            <p>{l.body}</p>
+            <p class="rests">Rests on {l.rests}</p>
+          </div>
+        ))
+      }
+      <p class="hint" aria-hidden="true">Scroll to open</p>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Pointing at a callout lifts its plate and dims the others.
+  for (const arch of document.querySelectorAll<HTMLElement>("[data-arch]")) {
+    for (const c of arch.querySelectorAll<HTMLElement>(".callout[data-i]")) {
+      c.addEventListener("pointerenter", () => (arch.dataset.active = c.dataset.i));
+      c.addEventListener("pointerleave", () => delete arch.dataset.active);
+    }
+  }
+</script>
+
+<style>
+  .arch-scroll {
+    position: relative;
+  }
+  .pin {
+    padding-block: clamp(4rem, 8vw, 6rem);
+  }
+  .head {
+    display: grid;
+    grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+    gap: 2rem;
+    align-items: end;
+    margin-bottom: clamp(1.5rem, 3vw, 2.5rem);
+  }
+
+  .arch {
+    position: relative;
+    width: min(calc(100% - 2 * var(--gutter)), 62rem);
+    margin-inline: auto;
+  }
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  .tone-red {
+    --c: var(--red);
+  }
+  .tone-ink {
+    --c: var(--ink);
+  }
+  .tone-amber {
+    --c: var(--amber);
+  }
+
+  .face {
+    fill: var(--plate);
+    stroke: var(--ink);
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+  }
+  .side {
+    stroke: var(--ink);
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+  }
+  .side--l {
+    fill: var(--c);
+  }
+  .side--r {
+    fill: color-mix(in srgb, var(--c) 62%, var(--ink));
+  }
+  .art * {
+    vector-effect: non-scaling-stroke;
+  }
+  .ink {
+    fill: var(--ink);
+    opacity: 0.8;
+  }
+  .hot {
+    fill: var(--red);
+    animation: arch-blink 1.4s steps(2, jump-none) infinite;
+  }
+  .wire {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 1.4;
+    stroke-dasharray: 3 4;
+    animation: arch-march 1.1s linear infinite;
+  }
+  .wire--back {
+    stroke: var(--ink-mute);
+  }
+  .hub {
+    fill: var(--red);
+    stroke: var(--ink);
+    stroke-width: 1.4;
+  }
+  .hub--alt {
+    fill: var(--plate);
+  }
+  .token {
+    fill: var(--ink);
+  }
+  .token--next {
+    animation: arch-blink 1.4s steps(2, jump-none) infinite;
+  }
+  .spent {
+    fill: none;
+    stroke: var(--ink-mute);
+    stroke-width: 1;
+  }
+  .proof {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 1.4;
+  }
+  .proof--one {
+    fill: var(--amber);
+  }
+  .block {
+    fill: var(--ink);
+    opacity: 0.75;
+  }
+  .block--new {
+    fill: var(--amber);
+    opacity: 1;
+    animation: arch-blink 2s var(--ease) infinite;
+  }
+  @keyframes arch-blink {
+    50% {
+      opacity: 0.3;
+    }
+  }
+  @keyframes arch-march {
+    to {
+      stroke-dashoffset: -14;
+    }
+  }
+
+  .drop-path line {
+    stroke: var(--ink);
+    stroke-width: 1.2;
+    stroke-dasharray: 2 6;
+    opacity: 0.5;
+  }
+  .drop {
+    stroke: var(--ink);
+    stroke-width: 1.2;
+  }
+  .leader {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 1.2;
+  }
+
+  .lift {
+    transition: transform 0.45s var(--spring), opacity 0.3s var(--ease);
+  }
+  .arch[data-active] .lift {
+    opacity: 0.25;
+  }
+  .arch[data-active="0"] .layer[data-i="0"] .lift,
+  .arch[data-active="1"] .layer[data-i="1"] .lift,
+  .arch[data-active="2"] .layer[data-i="2"] .lift,
+  .arch[data-active="3"] .layer[data-i="3"] .lift,
+  .arch[data-active="4"] .layer[data-i="4"] .lift {
+    opacity: 1;
+    transform: translateY(-12px);
+  }
+
+  .callout {
+    position: absolute;
+    width: 27%;
+    transform: translateY(-1rem);
+    display: grid;
+    gap: 0.3rem;
+    cursor: default;
+  }
+  .callout--left {
+    left: 0;
+  }
+  .callout--right {
+    right: 0;
+  }
+  h3 {
+    font-size: var(--step-1);
+  }
+  h3::before {
+    content: "";
+    display: inline-block;
+    width: 0.6rem;
+    height: 0.6rem;
+    margin-right: 0.55rem;
+    background: var(--c);
+    outline: 1.4px solid var(--ink);
+    vertical-align: 0.1em;
+  }
+  .callout p {
+    font-size: 0.88rem;
+    color: var(--fg-soft);
+  }
+  .callout .rests {
+    font-family: var(--code);
+    font-size: 0.68rem;
+    color: var(--fg-mute);
+  }
+  .hint {
+    position: absolute;
+    left: 50%;
+    bottom: 4%;
+    transform: translateX(-50%);
+    font-size: var(--step--1);
+    color: var(--fg-mute);
+    opacity: 0;
+  }
+
+  /* The block opens as the section is scrolled through: it stays pinned while the plates part. */
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) and (min-width: 60rem) {
+      .arch-scroll {
+        height: 260vh;
+        view-timeline: --arch block;
+      }
+      .pin {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        display: grid;
+        align-content: center;
+        padding-block: 2rem;
+      }
+      .arch {
+        width: min(calc(100% - 2 * var(--gutter)), calc((100vh - 15rem) * var(--ratio)));
+      }
+      .layer {
+        animation: arch-open linear both;
+        animation-timeline: --arch;
+        animation-range: contain 5% contain 50%;
+      }
+      @keyframes arch-open {
+        from {
+          transform: translateY(var(--from));
+        }
+      }
+      .leader,
+      .callout {
+        animation: arch-arrive linear both;
+        animation-timeline: --arch;
+        animation-range: contain calc(38% + var(--i) * 7%) contain calc(48% + var(--i) * 7%);
+      }
+      @keyframes arch-arrive {
+        from {
+          opacity: 0;
+          translate: 0 1rem;
+        }
+      }
+      .drop-path {
+        animation: arch-reveal linear both;
+        animation-timeline: --arch;
+        animation-range: contain 45% contain 55%;
+      }
+      @keyframes arch-reveal {
+        from {
+          opacity: 0;
+        }
+      }
+      .hint {
+        animation: arch-hint linear both;
+        animation-timeline: --arch;
+        animation-range: contain 0% contain 12%;
+      }
+      @keyframes arch-hint {
+        from {
+          opacity: 1;
+        }
+        to {
+          opacity: 0;
+        }
+      }
+    }
+  }
+
+  @media (max-width: 60rem) {
+    .head {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .leader {
+      display: none;
+    }
+    .arch {
+      display: grid;
+      gap: 1.4rem;
+    }
+    .callout {
+      position: static;
+      width: auto;
+      transform: none;
+    }
+  }
+</style>

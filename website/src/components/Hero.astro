@@ -1,0 +1,152 @@
+---
+/** The opening: one centred line, set large, decoding out of pixel noise over a quiet field of packets. */
+import Logo from "./Logo.astro";
+import PixelText from "./PixelText.astro";
+---
+
+<div class="night hero-ground">
+  <canvas class="drift" aria-hidden="true" data-drift></canvas>
+  <header class="top wrap">
+    <a class="home" href="/" aria-label="Topi home"><Logo class="home__logo" label={false} /></a>
+    <nav aria-label="Primary">
+      <a href="#mixnet">Mixnet</a>
+      <a href="#pool">Pool</a>
+      <a href="#quantum">Post-quantum</a>
+      <a href="#console">Console</a>
+      <a href="/whitepaper.pdf">Whitepaper</a>
+      <a class="slab slab--line nav__src" href="https://github.com/Naveen-6087/topi">Source</a>
+    </nav>
+  </header>
+
+  <section class="hero wrap" aria-labelledby="hero-title">
+    <PixelText as="h1" id="hero-title" text="Leave n{o}|trace." live />
+    <p class="sub">Private payments on Ethereum that no observer can follow and no quantum computer can break.</p>
+    <div class="actions">
+      <a class="slab slab--red" href="https://github.com/Naveen-6087/topi/tree/main/docs">Read the docs</a>
+      <a class="slab slab--line" href="#console">Install the console</a>
+    </div>
+    <a class="cue" href="#mixnet" aria-label="Scroll to the mixnet">
+      <svg viewBox="0 0 7 9" aria-hidden="true">
+        <path d="M3 0h1v6H3zM0 4h1v1H0zM1 5h1v1H1zM2 6h1v1H2zM3 7h1v1H3zM4 6h1v1H4zM5 5h1v1H5zM6 4h1v1H6z" />
+      </svg>
+    </a>
+  </section>
+</div>
+
+<script>
+  import { mountDrift } from "../scripts/drift";
+  const canvas = document.querySelector<HTMLCanvasElement>("[data-drift]");
+  if (canvas) mountDrift(canvas);
+</script>
+
+<style>
+  .hero-ground {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+  .hero-ground::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    background: radial-gradient(circle at 1px 1px, rgba(236, 234, 227, 0.07) 1px, transparent 0) 0 0 / 24px 24px;
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 30%, transparent 85%);
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 30%, transparent 85%);
+  }
+  .drift {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    width: 100%;
+    height: 100%;
+  }
+  .top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-block: 1.3rem;
+  }
+  .home {
+    display: block;
+    width: 7.2rem;
+  }
+  nav {
+    display: flex;
+    align-items: center;
+    gap: clamp(1rem, 2.6vw, 2.1rem);
+  }
+  nav a:not(.slab) {
+    text-decoration: none;
+    color: var(--fg-mute);
+    transition: color 0.2s var(--ease);
+  }
+  nav a:not(.slab):hover {
+    color: var(--fg);
+  }
+  .nav__src {
+    padding: 0.5em 1.1em;
+  }
+
+  .hero {
+    position: relative;
+    min-height: calc(100svh - 5.5rem);
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: clamp(1.4rem, 3vw, 2.2rem);
+    text-align: center;
+    padding-block: 2rem 6rem;
+  }
+  .hero :global(h1) {
+    font-size: clamp(4rem, 18vw, 13.5rem);
+    font-weight: 500;
+    letter-spacing: -0.055em;
+    line-height: 0.86;
+  }
+  .sub {
+    max-width: 30ch;
+    font-size: clamp(1.1rem, 1.6vw, 1.35rem);
+    line-height: 1.4;
+    color: var(--fg-soft);
+    animation: hero-up 1s var(--ease) 0.9s both;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+    animation: hero-up 1s var(--ease) 1.05s both;
+  }
+  @keyframes hero-up {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+  }
+  .cue {
+    position: absolute;
+    bottom: 2rem;
+    left: 50%;
+    width: 0.9rem;
+    color: var(--fg-mute);
+    transform: translateX(-50%);
+    animation: hero-bob 1.8s steps(3, jump-none) infinite;
+  }
+  .cue svg {
+    display: block;
+    width: 100%;
+    fill: currentColor;
+    shape-rendering: crispEdges;
+  }
+  @keyframes hero-bob {
+    50% {
+      transform: translate(-50%, 6px);
+    }
+  }
+  @media (max-width: 44rem) {
+    nav a:not(.slab) {
+      display: none;
+    }
+  }
+</style>

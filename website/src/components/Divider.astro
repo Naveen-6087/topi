@@ -1,0 +1,97 @@
+---
+/**
+ * The seam between two sections: the upper ground breaks into pixels that thin out into the lower one,
+ * a few of them twinkling, with packets sliding along the seam.
+ */
+interface Props {
+  from: "night" | "paper";
+  to: "night" | "paper";
+  seed?: number;
+}
+const { from, to, seed = 1 } = Astro.props;
+const COLS = 180;
+const ROWS = 8;
+const C = 8;
+let s = seed * 9301 + 49297;
+const rand = () => {
+  s = (s * 9301 + 49297) % 233280;
+  return s / 233280;
+};
+const cells: { x: number; y: number; tw: boolean; d: string; o: string }[] = [];
+for (let r = 0; r < ROWS; r++)
+  for (let c = 0; c < COLS; c++) {
+    const p = Math.pow(1 - (r + 0.5) / ROWS, 2.2);
+    if (rand() < p) cells.push({ x: c * C, y: r * C, tw: rand() < 0.06, d: (-rand() * 4).toFixed(2), o: (0.35 + rand() * 0.65).toFixed(2) });
+  }
+const packets = [
+  { y: 2, dur: 9, d: 0, tone: "red" },
+  { y: 4, dur: 13, d: -5, tone: "amber" },
+  { y: 5, dur: 11, d: -8, tone: "dim" },
+];
+---
+
+<div class:list={["divider", `on-${to}`]} aria-hidden="true">
+  <svg viewBox={`0 0 ${COLS * C} ${ROWS * C}`} preserveAspectRatio="xMidYMin slice">
+    <g class:list={["cells", `cells--${from}`]}>
+      {cells.map((c) => <rect class={c.tw ? "tw" : undefined} x={c.x} y={c.y} width={C} height={C} style={`opacity:${c.o}${c.tw ? `;animation-delay:${c.d}s` : ""}`} />)}
+    </g>
+    {
+      packets.map((p) => (
+        <rect class={`pk pk--${p.tone}`} y={p.y * C + 2} width="4" height="4" style={`animation-duration:${p.dur}s;animation-delay:${p.d}s`} />
+      ))
+    }
+  </svg>
+</div>
+
+<style>
+  .divider {
+    height: 64px;
+    overflow: hidden;
+  }
+  .on-night {
+    background: var(--night);
+  }
+  .on-paper {
+    background: var(--paper);
+  }
+  svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    shape-rendering: crispEdges;
+  }
+  .cells--night {
+    fill: var(--night);
+  }
+  .cells--paper {
+    fill: var(--paper);
+  }
+  .tw {
+    animation: div-twinkle 4s steps(2, jump-none) infinite;
+  }
+  @keyframes div-twinkle {
+    50% {
+      opacity: 0;
+    }
+  }
+  .pk {
+    animation: div-slide linear infinite;
+  }
+  .pk--red {
+    fill: var(--red);
+  }
+  .pk--amber {
+    fill: var(--amber);
+  }
+  .pk--dim {
+    fill: var(--moon-mute);
+  }
+  @keyframes div-slide {
+    from {
+      transform: translateX(-20px);
+    }
+    to {
+      transform: translateX(1460px);
+    }
+  }
+</style>

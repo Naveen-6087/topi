@@ -1,0 +1,31 @@
+---
+/** The slim header used on the site's secondary pages. */
+import Logo from "./Logo.astro";
+---
+
+<header class="night top">
+  <div class="wrap row">
+    <a class="home" href="/" aria-label="Topi home"><Logo label={false} /></a>
+    <a class="back" href="/">Back to the site</a>
+  </div>
+</header>
+
+<style>
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-block: 1.3rem;
+  }
+  .home {
+    display: block;
+    width: 7.2rem;
+  }
+  .back {
+    color: var(--fg-mute);
+    text-decoration: none;
+  }
+  .back:hover {
+    color: var(--fg);
+  }
+</style>

@@ -1,0 +1,349 @@
+---
+/**
+ * What a quantum computer breaks, and what replaces it here. Each card carries an isometric line drawing,
+ * generated from simple geometry below: a lattice, a hash tree, and a stack of proof sheets.
+ */
+import PixelText from "./PixelText.astro";
+
+type P = [number, number];
+const iso = (x: number, y: number, z: number, s: number, cx = 160, cy = 130): P => [cx + (x - y) * 0.866 * s, cy + (x + y) * 0.5 * s - z * s];
+const pts = (ps: P[]) => ps.map((p) => p.map((v) => v.toFixed(1)).join(",")).join(" ");
+
+// A 3 by 3 by 3 lattice, and a short vector that lands near, not on, one of its points.
+const S1 = 38;
+const lattice: { a: P; b: P }[] = [];
+const nodes: { p: P; k: number }[] = [];
+for (let x = -1; x <= 1; x++)
+  for (let y = -1; y <= 1; y++)
+    for (let z = -1; z <= 1; z++) {
+      nodes.push({ p: iso(x, y, z, S1), k: x + 1 + (y + 1) * 3 + (z + 1) * 9 });
+      if (x < 1) lattice.push({ a: iso(x, y, z, S1), b: iso(x + 1, y, z, S1) });
+      if (y < 1) lattice.push({ a: iso(x, y, z, S1), b: iso(x, y + 1, z, S1) });
+      if (z < 1) lattice.push({ a: iso(x, y, z, S1), b: iso(x, y, z + 1, S1) });
+    }
+const vecFrom = iso(-1, -1, -1, S1);
+const vecTo = iso(1.18, 0.12, 0.82, S1);
+const target = iso(1, 0, 1, S1);
+
+// A hash tree of small blocks: four leaves, two inner nodes, one root.
+const S2 = 34;
+const cube = (x: number, y: number, z: number, w = 0.62, h = 0.36) => {
+  const a = w / 2;
+  const t = [iso(x - a, y - a, z + h, S2), iso(x + a, y - a, z + h, S2), iso(x + a, y + a, z + h, S2), iso(x - a, y + a, z + h, S2)];
+  const l = [iso(x - a, y + a, z + h, S2), iso(x + a, y + a, z + h, S2), iso(x + a, y + a, z, S2), iso(x - a, y + a, z, S2)];
+  const r = [iso(x + a, y - a, z + h, S2), iso(x + a, y + a, z + h, S2), iso(x + a, y + a, z, S2), iso(x + a, y - a, z, S2)];
+  return { top: pts(t), left: pts(l), right: pts(r), base: iso(x, y, z, S2), crown: iso(x, y, z + h, S2) };
+};
+// t runs level across the screen: half along x, half against y
+const at = (t: number, z: number) => cube(t / 2, -t / 2, z);
+const leaves = [-2.4, -0.8, 0.8, 2.4].map((t) => at(t, -1.3));
+const inner = [-1.6, 1.6].map((t) => at(t, 0.1));
+const root = at(0, 1.5);
+const link = (child: ReturnType<typeof cube>, parent: ReturnType<typeof cube>) => `M${child.crown.join(" ")} L${parent.base.join(" ")}`;
+const path = `${link(leaves[1], inner[0])} ${link(inner[0], root)}`;
+
+// Three proof sheets, stacked, with writing on the top one.
+const S3 = 30;
+const sheet = (z: number) => pts([iso(-1.8, -1.2, z, S3), iso(1.8, -1.2, z, S3), iso(1.8, 1.2, z, S3), iso(-1.8, 1.2, z, S3)]);
+const sheetEdge = (z: number) => pts([iso(-1.8, 1.2, z, S3), iso(1.8, 1.2, z, S3), iso(1.8, 1.2, z - 0.12, S3), iso(-1.8, 1.2, z - 0.12, S3)]);
+const sheetSide = (z: number) => pts([iso(1.8, -1.2, z, S3), iso(1.8, 1.2, z, S3), iso(1.8, 1.2, z - 0.12, S3), iso(1.8, -1.2, z - 0.12, S3)]);
+const [ox, oy] = iso(-1.5, -0.9, 1.2, S3);
+// maps the sheet's own x and y onto the isometric top face
+const surface = `matrix(${0.866 * S3} ${0.5 * S3} ${-0.866 * S3} ${0.5 * S3} ${ox.toFixed(1)} ${oy.toFixed(1)})`;
+
+const cards = [
+  {
+    title: "Lattice encryption",
+    body: "Each layer of every packet is sealed with ML-KEM-768, paired with X25519.",
+    replaces: "X25519 alone",
+    art: "lattice",
+  },
+  {
+    title: "Hash-based signatures",
+    body: "Accounts and the paymaster sign with leanSPHINCS, which rests on hash functions alone.",
+    replaces: "ECDSA",
+    art: "tree",
+  },
+  {
+    title: "Hash-based proofs",
+    body: "Spends are proven with Spartan-WHIR and checked on chain by a WHIR verifier, with no trusted setup.",
+    replaces: "Groth16 on BN254",
+    art: "sheets",
+  },
+];
+---
+
+<section id="quantum" class="paper quantum" aria-labelledby="quantum-title">
+  <div class="wrap">
+    <div class="head">
+      <PixelText id="quantum-title" text="Nothing here falls|t{o} Shor." />
+      <p class="lead">
+        Most privacy systems are held together by elliptic curves. A quantum computer breaks them: it could forge their
+        proofs, sign for their accounts and unwrap recorded traffic.
+      </p>
+    </div>
+
+    <ul class="cards">
+      {
+        cards.map((c) => (
+          <li class="card">
+            <svg class={`art art--${c.art}`} viewBox="0 0 320 240" aria-hidden="true">
+              {c.art === "lattice" && (
+                <g>
+                  {lattice.map((e) => (
+                    <line x1={e.a[0]} y1={e.a[1]} x2={e.b[0]} y2={e.b[1]} />
+                  ))}
+                  {nodes.map((n) => (
+                    <rect class="dot" x={n.p[0] - 3} y={n.p[1] - 3} width="6" height="6" style={`--k:${n.k}`} />
+                  ))}
+                  <line class="vec" x1={vecFrom[0]} y1={vecFrom[1]} x2={vecTo[0]} y2={vecTo[1]} />
+                  <rect class="hit" x={vecTo[0] - 4} y={vecTo[1] - 4} width="8" height="8" />
+                  <circle class="near" cx={target[0]} cy={target[1]} r="11" />
+                  <text x="16" y="228">ML-KEM-768</text>
+                </g>
+              )}
+              {c.art === "tree" && (
+                <g>
+                  {leaves.map((l, i) => (
+                    <path class="edge" d={link(l, inner[i < 2 ? 0 : 1])} />
+                  ))}
+                  {inner.map((n) => (
+                    <path class="edge" d={link(n, root)} />
+                  ))}
+                  <path class="climb" d={path} />
+                  {[...leaves, ...inner, root].map((b, i) => (
+                    <g class={i === 1 ? "box box--hot" : i === 6 ? "box box--root" : "box"}>
+                      <polygon points={b.left} />
+                      <polygon points={b.right} />
+                      <polygon class="lid" points={b.top} />
+                    </g>
+                  ))}
+                  <text x="16" y="228">leanSPHINCS</text>
+                </g>
+              )}
+              {c.art === "sheets" && (
+                <g>
+                  {[0, 0.6, 1.2].map((z, i) => (
+                    <g class="sheet" style={`--i:${i}`}>
+                      <polygon class="sheet__edge" points={sheetEdge(z)} />
+                      <polygon class="sheet__edge" points={sheetSide(z)} />
+                      <polygon class="sheet__top" points={sheet(z)} />
+                    </g>
+                  ))}
+                  <g class="writing"><g transform={surface}>
+                    <text x="0.15" y="0.65">proof</text>
+                    <text class="stars" x="0.15" y="1.4">* * * * *</text>
+                    <rect class="seal" x="2.35" y="0.9" width="0.65" height="0.65" />
+                  </g></g>
+                  <text x="16" y="228">WHIR</text>
+                </g>
+              )}
+            </svg>
+            <h3>{c.title}</h3>
+            <p>{c.body}</p>
+            <p class="replaces">
+              Replaces <s>{c.replaces}</s>
+            </p>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>
+
+<style>
+  .quantum {
+    position: relative;
+    padding-block: clamp(4rem, 9vw, 7rem);
+    background-image: radial-gradient(circle at 1px 1px, rgba(14, 13, 12, 0.12) 1px, transparent 0);
+    background-size: 22px 22px;
+  }
+  .head {
+    display: grid;
+    justify-items: center;
+    gap: 1rem;
+    text-align: center;
+    margin-bottom: clamp(2.5rem, 5vw, 4rem);
+  }
+  .head :global(h2) {
+    font-size: clamp(2.4rem, 5.5vw, 4.6rem);
+  }
+  .head .lead {
+    max-width: 48ch;
+  }
+
+  .cards {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border: 1px solid var(--rule);
+    background: var(--plate);
+  }
+  .card {
+    display: grid;
+    align-content: start;
+    gap: 0.7rem;
+    padding: clamp(1.4rem, 2.5vw, 2.2rem);
+  }
+  .card + .card {
+    border-left: 1px solid var(--rule);
+  }
+  .art {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1rem;
+    overflow: visible;
+  }
+  .art text {
+    font-family: var(--code);
+    font-size: 11px;
+    fill: var(--fg-mute);
+  }
+  h3 {
+    font-size: var(--step-1);
+  }
+  .card p {
+    color: var(--fg-soft);
+    font-size: 0.95rem;
+  }
+  .card .replaces {
+    font-family: var(--code);
+    font-size: 0.72rem;
+    color: var(--fg-mute);
+  }
+  .replaces s {
+    color: var(--red);
+    text-decoration-thickness: 1.5px;
+  }
+
+  /* lattice */
+  .art--lattice line {
+    stroke: var(--red);
+    stroke-width: 1;
+    opacity: 0.55;
+  }
+  .art--lattice .dot {
+    fill: var(--plate);
+    stroke: var(--red);
+    stroke-width: 1.2;
+    animation: q-pulse 3.2s steps(2, jump-none) infinite;
+    animation-delay: calc(var(--k) * -0.37s);
+  }
+  @keyframes q-pulse {
+    50% {
+      fill: var(--red);
+    }
+  }
+  .art--lattice .vec {
+    stroke: var(--ink);
+    stroke-width: 1.6;
+    stroke-dasharray: 4 4;
+    opacity: 1;
+    animation: q-march 0.9s linear infinite;
+  }
+  .art--lattice .hit {
+    fill: var(--ink);
+  }
+  .art--lattice .near {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 1;
+    stroke-dasharray: 2 3;
+  }
+  @keyframes q-march {
+    to {
+      stroke-dashoffset: -16;
+    }
+  }
+
+  /* tree */
+  .box polygon {
+    fill: var(--plate);
+    stroke: var(--ink);
+    stroke-width: 1.3;
+    stroke-linejoin: round;
+  }
+  .box polygon:not(.lid) {
+    fill: color-mix(in srgb, var(--ink) 8%, var(--plate));
+  }
+  .box--hot .lid {
+    fill: var(--red);
+  }
+  .box--root .lid {
+    fill: var(--amber);
+  }
+  .edge {
+    stroke: var(--ink);
+    stroke-width: 1;
+    opacity: 0.5;
+  }
+  .climb {
+    fill: none;
+    stroke: var(--red);
+    stroke-width: 2.5;
+    stroke-dasharray: 160;
+    animation: q-climb 2.8s var(--ease) infinite;
+  }
+  @keyframes q-climb {
+    0% {
+      stroke-dashoffset: 160;
+    }
+    55%,
+    100% {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  /* sheets */
+  .sheet {
+    animation: q-float 3.6s var(--ease) infinite;
+    animation-delay: calc(var(--i) * 0.25s);
+  }
+  @keyframes q-float {
+    50% {
+      transform: translateY(calc(var(--i) * -5px));
+    }
+  }
+  .sheet__top {
+    fill: var(--plate);
+    stroke: var(--ink);
+    stroke-width: 1.3;
+    stroke-linejoin: round;
+  }
+  .sheet__edge {
+    fill: var(--ink);
+    stroke: var(--ink);
+    stroke-width: 1;
+  }
+  .writing {
+    animation: q-float 3.6s var(--ease) infinite;
+    animation-delay: 0.5s;
+    --i: 2;
+  }
+  .writing text {
+    font-family: var(--code);
+    font-size: 0.5px;
+    fill: var(--ink);
+  }
+  .writing .stars {
+    fill: var(--amber);
+    font-size: 0.42px;
+  }
+  .seal {
+    fill: var(--amber);
+    stroke: var(--ink);
+    stroke-width: 0.04;
+  }
+
+  @media (max-width: 60rem) {
+    .cards {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .card + .card {
+      border-left: 0;
+      border-top: 1px solid var(--rule);
+    }
+  }
+</style>

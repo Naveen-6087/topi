@@ -1,0 +1,257 @@
+---
+/**
+ * The shielded pool: coins with a visible amount and owner pass behind a glass shield, vanish while they
+ * are inside it, and come out as sealed notes that show neither.
+ */
+import PixelText from "./PixelText.astro";
+
+const coins = [
+  { amount: "0.5", owner: "0x3f..a1" },
+  { amount: "1.2", owner: "0x9c..07" },
+  { amount: "0.08", owner: "0x51..e4" },
+  { amount: "3.0", owner: "0xd2..6b" },
+  { amount: "0.25", owner: "0x7a..f0" },
+  { amount: "2.4", owner: "0x0e..93" },
+  { amount: "0.7", owner: "0xb8..2c" },
+];
+const DURATION = 15;
+const SHIELD = "M120 4 L232 44 Q236 46 236 51 L236 150 Q236 226 120 286 Q4 226 4 150 L4 51 Q4 46 8 44 Z";
+---
+
+<section id="pool" class="paper pool" aria-labelledby="pool-title">
+  <div class="wrap head">
+    <PixelText id="pool-title" text="In the p{o}ol, nothing|is public." />
+    <p class="lead">A deposit becomes a note only you can open. Spending it proves you own a note, never which one.</p>
+  </div>
+
+  <div class="stage" role="img" aria-label="Coins showing an amount and an owner pass behind a shield and come out as sealed notes">
+    <div class="track" style={`--dur:${DURATION}s`}>
+      {
+        coins.map((c, i) => (
+          <div class="coin" style={`--d:${(-i * DURATION) / coins.length}s`}>
+            <span class="face face--pub">
+              <strong>{c.amount}</strong>
+              <span>{c.owner}</span>
+            </span>
+            <span class="face face--sealed">
+              <svg viewBox="0 0 7 8" aria-hidden="true">
+                <path d="M2 0h3v1H2zM1 1h1v2H1zM5 1h1v2H5zM0 3h7v5H0z" />
+                <path class="key" d="M3 4h1v2H3z" />
+              </svg>
+            </span>
+          </div>
+        ))
+      }
+    </div>
+    <div class="shield">
+      <svg viewBox="0 0 240 290" aria-hidden="true">
+        <path class="rim" d={SHIELD} />
+        <path class="rim rim--inner" d={SHIELD} transform="translate(24 26) scale(0.8)" />
+        <path class="rim rim--inner" d={SHIELD} transform="translate(48 52) scale(0.6)" />
+      </svg>
+    </div>
+    <p class="label label--l" aria-hidden="true">public</p>
+    <p class="label label--r" aria-hidden="true">sealed</p>
+  </div>
+</section>
+
+<style define:vars={{ shield: `path("${SHIELD}")` }}>
+  .pool {
+    padding-block: clamp(4rem, 9vw, 7rem) clamp(3rem, 7vw, 5rem);
+    overflow: hidden;
+  }
+  .head {
+    display: grid;
+    justify-items: center;
+    gap: 1rem;
+    text-align: center;
+  }
+  .head :global(h2) {
+    font-size: clamp(2.4rem, 5.5vw, 4.6rem);
+  }
+  .head .lead {
+    max-width: 42ch;
+  }
+
+  .stage {
+    position: relative;
+    height: 360px;
+    margin-top: clamp(2rem, 5vw, 3.5rem);
+  }
+  .track {
+    position: absolute;
+    inset: 0;
+  }
+  /* The track fades out at both ends so coins arrive and leave softly. */
+  .track {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  }
+  .coin {
+    position: absolute;
+    top: 50%;
+    width: 84px;
+    height: 84px;
+    margin: -42px 0 0 -42px;
+    animation: pool-travel var(--dur) linear infinite;
+    animation-delay: var(--d);
+  }
+  .face {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    border-radius: 50%;
+    animation: inherit;
+    animation-delay: var(--d);
+  }
+  .face--pub {
+    background: var(--plate);
+    border: 2px solid var(--ink);
+    box-shadow: 0 6px 0 -1px var(--ink);
+    animation-name: pool-pub;
+  }
+  .face--pub strong {
+    font-family: var(--display);
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .face--pub span {
+    font-family: var(--code);
+    font-size: 0.55rem;
+    color: var(--fg-mute);
+  }
+  .face--sealed {
+    background: var(--amber);
+    border: 2px solid var(--ink);
+    box-shadow: 0 6px 0 -1px var(--ink);
+    animation-name: pool-sealed;
+  }
+  .face--sealed svg {
+    width: 1.5rem;
+    fill: var(--ink);
+    shape-rendering: crispEdges;
+  }
+  .face--sealed .key {
+    fill: var(--amber);
+  }
+  @keyframes pool-travel {
+    0% {
+      left: -4%;
+    }
+    100% {
+      left: 104%;
+    }
+  }
+  /* Out of sight inside the shield: blurred to nothing from 43% to 57% of the way across. */
+  @keyframes pool-pub {
+    0%,
+    40% {
+      opacity: 1;
+      filter: blur(0);
+    }
+    46%,
+    100% {
+      opacity: 0;
+      filter: blur(8px);
+    }
+  }
+  @keyframes pool-sealed {
+    0%,
+    54% {
+      opacity: 0;
+      filter: blur(8px);
+    }
+    60%,
+    100% {
+      opacity: 1;
+      filter: blur(0);
+    }
+  }
+
+  .shield {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 240px;
+    height: 290px;
+    margin: -145px 0 0 -120px;
+    clip-path: var(--shield);
+    background:
+      linear-gradient(115deg, transparent 30%, rgba(245, 184, 61, 0.45) 45%, transparent 60%) 0 0 / 300% 100%,
+      linear-gradient(160deg, rgba(255, 255, 255, 0.75), rgba(233, 231, 223, 0.35));
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    backdrop-filter: blur(16px) saturate(1.2);
+    animation: pool-sheen 5s var(--ease) infinite;
+  }
+  @keyframes pool-sheen {
+    0% {
+      background-position: 100% 0, 0 0;
+    }
+    60%,
+    100% {
+      background-position: -50% 0, 0 0;
+    }
+  }
+  .shield svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .rim {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 2.5;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+  .rim--inner {
+    stroke-width: 1.2;
+    opacity: 0.45;
+  }
+
+  .label {
+    position: absolute;
+    bottom: 0;
+    font-family: var(--code);
+    font-size: 0.72rem;
+    color: var(--fg-mute);
+  }
+  .label--l {
+    left: 18%;
+  }
+  .label--r {
+    right: 18%;
+  }
+
+  @media (max-width: 40rem) {
+    .stage {
+      height: 300px;
+    }
+    .coin {
+      width: 48px;
+      height: 48px;
+      margin: -24px 0 0 -24px;
+    }
+    .face--pub strong {
+      font-size: 0.85rem;
+    }
+    .face--pub span {
+      display: none;
+    }
+    .face--sealed svg {
+      width: 1rem;
+    }
+    .shield {
+      transform: scale(0.8);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .coin {
+      animation-duration: calc(var(--dur) * 2);
+    }
+  }
+</style>

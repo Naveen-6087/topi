@@ -1,0 +1,93 @@
+---
+import Logo from "./Logo.astro";
+
+const links = [
+  { href: "https://github.com/Naveen-6087/topi/tree/main/docs", text: "Documentation" },
+  { href: "/whitepaper.pdf", text: "Whitepaper" },
+  { href: "https://github.com/Naveen-6087/topi", text: "Source" },
+  { href: "https://github.com/Naveen-6087/topi/blob/main/SECURITY.md", text: "Security" },
+  { href: "https://dora.privacy.ethrex.xyz", text: "Testnet explorer" },
+  { href: "/privacy", text: "Privacy and cookies" },
+];
+---
+
+<footer class="night foot">
+  <div class="wrap inner">
+    <Logo class="big" label={false} />
+    <nav aria-label="Footer">
+      {links.map((l) => <a href={l.href}>{l.text}</a>)}
+    </nav>
+    <p class="note">
+      <span class="beat" aria-hidden="true"></span> Testnet block <strong data-block>640,730</strong><br />
+      Research software, not audited. MIT or Apache 2.0.
+    </p>
+  </div>
+</footer>
+
+<script>
+  import { watchChain } from "../scripts/chain";
+  watchChain();
+</script>
+
+<style>
+  .foot {
+    padding-block: clamp(3.5rem, 8vw, 6rem) 2rem;
+    border-top: 1px solid var(--rule);
+  }
+  .inner {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2.5rem 3rem;
+    align-items: end;
+  }
+  .inner :global(.big) {
+    grid-column: 1 / -1;
+    width: min(100%, 30rem);
+  }
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 1.8rem;
+  }
+  nav a {
+    text-decoration: none;
+    color: var(--fg-soft);
+    transition: color 0.2s var(--ease);
+  }
+  nav a:hover {
+    color: var(--fg);
+    text-decoration: underline;
+    text-decoration-color: var(--red);
+  }
+  .note strong {
+    color: var(--fg);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .beat {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-right: 0.3rem;
+    background: var(--amber);
+    animation: foot-beat 2s steps(2, jump-none) infinite;
+  }
+  @keyframes foot-beat {
+    50% {
+      opacity: 0.25;
+    }
+  }
+  .note {
+    color: var(--fg-mute);
+    font-size: var(--step--1);
+    text-align: right;
+  }
+  @media (max-width: 52rem) {
+    .inner {
+      grid-template-columns: 1fr;
+    }
+    .note {
+      text-align: left;
+    }
+  }
+</style>

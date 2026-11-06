@@ -1,0 +1,64 @@
+---
+import "@fontsource-variable/funnel-display";
+import "@fontsource-variable/funnel-sans";
+import "@fontsource-variable/martian-mono";
+import "../styles/global.css";
+
+interface Props {
+  title?: string;
+  description?: string;
+  /** Keep the page out of search results (the 404 page). */
+  noindex?: boolean;
+}
+
+const {
+  title = "Topi: post-quantum private payments on Ethereum",
+  description = "Private payments that need no elliptic curves: zero-knowledge spends, a post-quantum mixnet, hash-based signatures and machine-checked rules, on EIP-8141 frame transactions.",
+  noindex = false,
+} = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const image = new URL("/banner.webp", Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#0e0d0c" />
+    <meta name="color-scheme" content="dark light" />
+    {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="sitemap" href="/sitemap.xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Topi" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={image} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={image} />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <slot />
+  </body>
+</html>
+
+<style>
+  .skip {
+    position: absolute;
+    left: 1rem;
+    top: -4rem;
+    padding: 0.5rem 1rem;
+    background: var(--plate);
+    border-radius: 999px;
+    z-index: 10;
+  }
+  .skip:focus {
+    top: 1rem;
+  }
+</style>

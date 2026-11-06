@@ -1,0 +1,256 @@
+---
+/**
+ * Four ways in, each under a pixel icon. The pixels fly in and settle when the cards come into view,
+ * and ripple column by column on hover. In the maps, "#" is the ink and "+" the card's colour.
+ */
+import PixelText from "./PixelText.astro";
+const cards = [
+  {
+    title: "Read the docs",
+    body: "How the pool, the mixnet and the prover fit together, and how to run each of them.",
+    href: "https://github.com/Naveen-6087/topi/tree/main/docs",
+    tone: "red",
+    map: [
+      "...........",
+      ".####.####.",
+      "#....#....#",
+      "#.++.#.++.#",
+      "#....#....#",
+      "#.++.#.++.#",
+      "#....#....#",
+      "#.++.#.++.#",
+      "#....#....#",
+      ".####.####.",
+      ".....#.....",
+    ],
+  },
+  {
+    title: "Run a node",
+    body: "A gateway, mix, exit or reply relay, on your machine or in an AWS region of your choice.",
+    href: "https://github.com/Naveen-6087/topi/tree/main/crates/mixnet",
+    tone: "red",
+    map: [
+      "...........",
+      ".#########.",
+      ".#+......#.",
+      ".#########.",
+      ".#+......#.",
+      ".#########.",
+      ".#+......#.",
+      ".#########.",
+      ".....#.....",
+      "...#####...",
+      "...........",
+    ],
+  },
+  {
+    title: "Use the SDK",
+    body: "Encode frame transactions, read the pool and drive a spend from TypeScript.",
+    href: "https://github.com/Naveen-6087/topi/tree/main/sdk",
+    tone: "amber",
+    map: [
+      "...........",
+      "......+....",
+      "...#..+#...",
+      "..#..+..#..",
+      ".#...+...#.",
+      "#....+....#",
+      ".#..+....#.",
+      "..#.+...#..",
+      "...#+..#...",
+      "...........",
+      "...........",
+    ],
+  },
+  {
+    title: "Check the proofs",
+    body: "Build the Lean model, audit its axioms and read what the theorems do and do not cover.",
+    href: "https://github.com/Naveen-6087/topi/tree/main/lean",
+    tone: "amber",
+    map: [
+      "....###....",
+      "..##...##..",
+      ".#.......#.",
+      ".#......+#.",
+      ".#.....+.#.",
+      ".#+...+..#.",
+      ".#.+.+...#.",
+      "..#.+...#..",
+      "...#...#...",
+      "....#.#....",
+      ".....#.....",
+    ],
+  },
+];
+
+// Deterministic scatter, so the build is reproducible.
+const scatter = (n: number) => {
+  const s = Math.sin(n * 12.9898) * 43758.5453;
+  return s - Math.floor(s);
+};
+const pixels = (map: string[], seed: number) =>
+  map.flatMap((row, y) =>
+    [...row].flatMap((ch, x) =>
+      ch === "." ? [] : [{ x, y, accent: ch === "+", dx: (scatter(seed + x * 31 + y * 7) - 0.5) * 12, dy: (scatter(seed + x * 17 + y * 53) - 0.5) * 12 }],
+    ),
+  );
+---
+
+<section id="start" class="night section" aria-labelledby="start-title">
+  <div class="wrap">
+    <PixelText id="start-title" text="Get st{a}rted." />
+    <ul class="cards" data-pixels>
+      {
+        cards.map((c, i) => (
+          <li class={`card tone-${c.tone}`}>
+            <a href={c.href}>
+              <svg class="icon" viewBox="0 0 11 11" aria-hidden="true">
+                {pixels(c.map, i * 1000).map((p) => (
+                  <rect
+                    x={p.x + 0.06}
+                    y={p.y + 0.06}
+                    width="0.88"
+                    height="0.88"
+                    class={p.accent ? "px px--accent" : "px"}
+                    style={`--dx:${p.dx.toFixed(1)}px;--dy:${p.dy.toFixed(1)}px;--d:${(p.y * 0.035 + scatter(p.x + p.y * 11 + i) * 0.25).toFixed(2)}s;--col:${p.x}`}
+                  />
+                ))}
+              </svg>
+              <h3>{c.title}</h3>
+              <p>{c.body}</p>
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>
+
+<script>
+  const grid = document.querySelector<HTMLElement>("[data-pixels]");
+  if (grid) {
+    new IntersectionObserver(
+      (entries, observer) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          grid.classList.add("is-in");
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.25 },
+    ).observe(grid);
+  }
+</script>
+
+<style>
+  section :global(h2) {
+    margin-bottom: clamp(2rem, 5vw, 3.5rem);
+  }
+  .cards {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: clamp(1rem, 2vw, 1.6rem);
+  }
+  .tone-red {
+    --c: var(--red);
+  }
+  .tone-amber {
+    --c: var(--amber);
+  }
+  .card a {
+    position: relative;
+    display: grid;
+    gap: 0.7rem;
+    height: 100%;
+    padding: clamp(1.4rem, 2.4vw, 2rem);
+    text-decoration: none;
+    background: var(--surface);
+    transition: background-color 0.3s var(--ease);
+  }
+  /* Bracket corners, which open outward on hover. */
+  .card a::before {
+    --b: 2px;
+    --l: 14px;
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(var(--fg), var(--fg)) top left / var(--l) var(--b),
+      linear-gradient(var(--fg), var(--fg)) top left / var(--b) var(--l),
+      linear-gradient(var(--fg), var(--fg)) top right / var(--l) var(--b),
+      linear-gradient(var(--fg), var(--fg)) top right / var(--b) var(--l),
+      linear-gradient(var(--fg), var(--fg)) bottom left / var(--l) var(--b),
+      linear-gradient(var(--fg), var(--fg)) bottom left / var(--b) var(--l),
+      linear-gradient(var(--fg), var(--fg)) bottom right / var(--l) var(--b),
+      linear-gradient(var(--fg), var(--fg)) bottom right / var(--b) var(--l);
+    background-repeat: no-repeat;
+    transition: inset 0.4s var(--spring);
+  }
+  .card a:hover::before,
+  .card a:focus-visible::before {
+    inset: -6px;
+  }
+  .card a:hover {
+    background: color-mix(in srgb, var(--c) 7%, var(--surface));
+  }
+  .icon {
+    width: 5.2rem;
+    height: 5.2rem;
+    margin-bottom: 1.4rem;
+    overflow: visible;
+  }
+  .px {
+    fill: var(--fg);
+    transform-box: fill-box;
+    transform-origin: center;
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) scale(0.2);
+    transition:
+      transform 0.7s var(--spring) var(--d),
+      opacity 0.3s var(--ease) var(--d);
+  }
+  .px--accent {
+    fill: var(--c);
+  }
+  .is-in .px {
+    opacity: 1;
+    transform: none;
+  }
+  .card a:hover .px {
+    animation: hop 0.45s var(--ease) calc(var(--col) * 0.035s);
+  }
+  .card a:hover .px--accent {
+    animation: hop 0.45s var(--ease) calc(var(--col) * 0.035s), glint 0.9s steps(2, jump-none) 0.45s infinite;
+  }
+  @keyframes hop {
+    40% {
+      transform: translateY(-0.25px) scale(0.6);
+    }
+  }
+  @keyframes glint {
+    50% {
+      opacity: 0.3;
+    }
+  }
+  h3 {
+    font-size: var(--step-1);
+  }
+  .card p {
+    color: var(--fg-soft);
+    font-size: 0.95rem;
+  }
+  @media (max-width: 64rem) {
+    .cards {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 36rem) {
+    .cards {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

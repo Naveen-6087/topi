@@ -1,0 +1,232 @@
+---
+/** The mixnet, live on a globe the reader can spin, with each node's figure called out. */
+import PixelText from "./PixelText.astro";
+const callouts = [
+  { node: "mix", place: "tl", tab: "Mix, Frankfurt", figure: "0", live: true, note: "packets shuffled in batches since you arrived" },
+  { node: "gateway", place: "tr", tab: "Gateway, Mumbai", figure: "16", note: "anonymous tokens per member each epoch" },
+  { node: "exit", place: "bl", tab: "Exit, N. Virginia", figure: "2 → 1", note: "spend proofs folded into one for the chain" },
+  { node: "relay", place: "br", tab: "Reply relay, Singapore", figure: "8 KB", note: "every packet, every hop, the same size" },
+];
+---
+
+<section id="network" class="night section mixnet" aria-labelledby="mixnet-title">
+  <div class="wrap">
+    <div class="head">
+      <PixelText id="mixnet-title" text="N{o}body sees|both ends." />
+      <p class="lead">
+        The gateway knows who sent a packet, not where it goes. The exit knows where it goes, not who sent it. Drag the
+        globe.
+      </p>
+    </div>
+
+    <figure class="stage" data-mixnet>
+      <canvas aria-hidden="true"></canvas>
+      <svg class="leaders" data-leaders aria-hidden="true">
+        {callouts.map((c) => <path data-node={c.node} />)}
+      </svg>
+      {
+        callouts.map((c) => (
+          <div class={`callout callout--${c.place}`} data-callout>
+            <span class="callout__tab">{c.tab}</span>
+            <span class="callout__body">
+              <strong class="callout__figure" data-mixed={c.live ? "" : undefined}>
+                {c.figure}
+              </strong>
+              <span class="callout__note">{c.note}</span>
+            </span>
+          </div>
+        ))
+      }
+      <figcaption>
+        <span><i class="key key--red"></i>payment</span>
+        <span><i class="key key--dim"></i>cover traffic</span>
+        <span><i class="key key--moon"></i>reply</span>
+        <span><i class="key key--amber"></i>settled</span>
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<script>
+  import { mountMixnet } from "../scripts/mixnet";
+  const stage = document.querySelector<HTMLElement>("[data-mixnet]");
+  if (stage) mountMixnet(stage);
+</script>
+
+<style>
+  .mixnet {
+    position: relative;
+    overflow: hidden;
+  }
+  .head {
+    display: grid;
+    grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+    gap: 2rem;
+    align-items: end;
+  }
+
+  .stage {
+    position: relative;
+    margin: clamp(1rem, 3vw, 2rem) 0 0;
+    height: clamp(560px, 92vh, 900px);
+  }
+  canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+    touch-action: pan-y;
+  }
+  canvas:active {
+    cursor: grabbing;
+  }
+  .leaders {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .leaders path {
+    fill: none;
+    stroke: var(--red);
+    stroke-width: 1;
+    transition: opacity 0.4s var(--ease);
+  }
+
+  /* Callouts: a tab with the node's name over a box with its figure. */
+  .callout {
+    position: absolute;
+    display: grid;
+    justify-items: start;
+    transition: opacity 0.4s var(--ease);
+  }
+  .callout:global(.is-far) {
+    opacity: 0.4;
+  }
+  .callout--tl {
+    left: 0;
+    top: 6%;
+  }
+  .callout--tr {
+    right: 0;
+    top: 12%;
+    justify-items: end;
+  }
+  .callout--bl {
+    left: 3%;
+    bottom: 16%;
+  }
+  .callout--br {
+    right: 3%;
+    bottom: 10%;
+    justify-items: end;
+  }
+  .callout__tab {
+    padding: 0.25rem 0.6rem;
+    font-family: var(--code);
+    font-size: 0.66rem;
+    color: var(--fg-mute);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-bottom: 0;
+  }
+  .callout__body {
+    display: grid;
+    gap: 0.25rem;
+    width: 13.5rem;
+    padding: 0.9rem 1.1rem 1rem;
+    background: color-mix(in srgb, var(--night) 82%, transparent);
+    border: 1px solid var(--rule);
+    backdrop-filter: blur(4px);
+  }
+  .callout__figure {
+    font-family: var(--display);
+    font-size: 2.3rem;
+    font-weight: 500;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .callout__note {
+    font-size: 0.8rem;
+    line-height: 1.35;
+    color: var(--fg-mute);
+  }
+
+  figcaption {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.3rem 1.2rem;
+    font-size: var(--step--1);
+    color: var(--fg-mute);
+    pointer-events: none;
+  }
+  figcaption > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .key {
+    width: 0.5rem;
+    height: 0.5rem;
+  }
+  .key--red {
+    background: var(--red);
+  }
+  .key--dim {
+    background: rgba(236, 234, 227, 0.45);
+  }
+  .key--moon {
+    background: var(--moon);
+  }
+  .key--amber {
+    background: var(--amber);
+  }
+
+  @media (max-width: 60rem) {
+    .head {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .stage {
+      height: auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.8rem;
+    }
+    canvas {
+      position: relative;
+      grid-column: 1 / -1;
+      height: auto;
+      aspect-ratio: 1;
+    }
+    .leaders {
+      display: none;
+    }
+    .callout {
+      position: static;
+      justify-items: stretch;
+    }
+    .callout:global(.is-far) {
+      opacity: 1;
+    }
+    .callout__body {
+      width: auto;
+    }
+    .callout__figure {
+      font-size: 1.8rem;
+    }
+    figcaption {
+      position: static;
+      grid-column: 1 / -1;
+      justify-content: flex-start;
+    }
+  }
+</style>

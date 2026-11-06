@@ -1,0 +1,352 @@
+---
+/**
+ * Building on Topi, shown as an editor: a file tree of the four places you would start, and the first
+ * lines you would write in each, typing themselves in when the file opens.
+ */
+import { Code } from "astro:components";
+import { codeTheme } from "../lib/code-theme";
+import PixelText from "./PixelText.astro";
+
+const files = [
+  {
+    id: "sdk",
+    dir: "sdk",
+    file: "spend.ts",
+    lang: "ts" as const,
+    href: "https://github.com/Naveen-6087/topi/tree/main/sdk",
+    code: `import { PoolReader, RpcClient, loadPoolDeployment } from "@topi/sdk";
+
+const rpc = new RpcClient("https://rpc1.privacy.ethrex.xyz");
+const deployment = loadPoolDeployment("deployments/8141/pool.json");
+const pool = new PoolReader(rpc, deployment.pool);
+
+// Rebuild the pool's trees from its public events.
+const view = await pool.chainView(deployment);
+console.log(view.next_leaf, "notes in the pool");`,
+  },
+  {
+    id: "contracts",
+    dir: "contracts",
+    file: "Depositor.sol",
+    lang: "solidity" as const,
+    href: "https://github.com/Naveen-6087/topi/tree/main/contracts",
+    code: `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+import { IShieldedPool } from "topi/interfaces/IShieldedPool.sol";
+
+contract Depositor {
+    IShieldedPool immutable pool;
+
+    constructor(IShieldedPool pool_) {
+        pool = pool_;
+    }
+
+    function deposit(uint256[8] calldata note) external payable {
+        pool.deposit{ value: msg.value }(note);
+    }
+}`,
+  },
+  {
+    id: "node",
+    dir: "crates/mixnet",
+    file: "run.sh",
+    lang: "shellscript" as const,
+    href: "https://github.com/Naveen-6087/topi/tree/main/crates/mixnet",
+    code: `cargo build --release
+
+# one key per node, then start the gateway
+target/release/topi-node keygen keys/gateway.key
+target/release/topi-node run gateway \\
+  --topology topology.json --key keys/gateway.key
+
+# send a ping through all three hops and back
+target/release/topi-client ping \\
+  --topology topology.json --identity member.id`,
+  },
+  {
+    id: "lean",
+    dir: "lean/PoolModel",
+    file: "SettleProofs.lean",
+    lang: "lean4" as const,
+    href: "https://github.com/Naveen-6087/topi/tree/main/lean",
+    code: `theorem run_distinct {rootOf : List Nat → Nat} :
+    ∀ (s : State) (txs : List (Bool × Bool × Spend × Spend)),
+      Distinct s.spent → Distinct (run rootOf s txs).spent
+  | _, [], h => h
+  | s, (p, q, a, b) :: rest, h =>
+    run_distinct _ rest (step_distinct (a := a) (b := b) (p := p) (q := q) h)`,
+  },
+];
+const LANG = { ts: "TypeScript", solidity: "Solidity", shellscript: "Shell", lean4: "Lean 4" };
+---
+
+<section id="build" class="paper build" aria-labelledby="build-title">
+  <div class="wrap">
+    <div class="head">
+      <PixelText id="build-title" text="Bu{i}ld on it." />
+      <p class="lead">A TypeScript SDK, a Foundry library, a node binary and a Lean model. Pick a file.</p>
+    </div>
+
+    <div class="editor" data-editor>
+      <div class="tree" role="tablist" aria-orientation="vertical" aria-label="Files">
+        <p class="tree__root">topi</p>
+        {
+          files.map((f, i) => (
+            <button
+              type="button"
+              role="tab"
+              id={`file-${f.id}`}
+              aria-controls={`code-${f.id}`}
+              aria-selected={i === 0 ? "true" : "false"}
+              tabindex={i === 0 ? 0 : -1}
+            >
+              <span class="dir">{f.dir}/</span>
+              <span class="name">{f.file}</span>
+            </button>
+          ))
+        }
+      </div>
+      <div class="pane">
+        {
+          files.map((f, i) => (
+            <div class="file" role="tabpanel" id={`code-${f.id}`} aria-labelledby={`file-${f.id}`} hidden={i !== 0}>
+              <div class="bar">
+                <span class="crumb">
+                  {f.dir}/<strong>{f.file}</strong>
+                </span>
+                <a href={f.href}>Open on GitHub</a>
+              </div>
+              <Code code={f.code} lang={f.lang} theme={codeTheme as any} />
+              <div class="status">
+                <span>{LANG[f.lang]}</span>
+                <span>{f.code.split("\n").length} lines</span>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  for (const editor of document.querySelectorAll<HTMLElement>("[data-editor]")) {
+    const tabs = [...editor.querySelectorAll<HTMLButtonElement>("[role=tab]")];
+    // Each line types in over as many steps as it has characters, one line after another.
+    const type = (panel: HTMLElement) => {
+      let delay = 120;
+      for (const line of panel.querySelectorAll<HTMLElement>(".line")) {
+        const n = Math.max(1, line.textContent?.length ?? 0);
+        line.style.setProperty("--n", String(n));
+        line.style.setProperty("--d", `${delay}ms`);
+        delay += Math.min(n * 9, 420) + 40;
+      }
+      panel.classList.remove("typing");
+      void panel.offsetWidth;
+      panel.classList.add("typing");
+    };
+    const select = (tab: HTMLButtonElement) => {
+      for (const t of tabs) {
+        const on = t === tab;
+        t.setAttribute("aria-selected", String(on));
+        t.tabIndex = on ? 0 : -1;
+        const panel = document.getElementById(t.getAttribute("aria-controls")!)!;
+        panel.hidden = !on;
+        if (on) type(panel);
+      }
+    };
+    tabs.forEach((tab, i) => {
+      tab.addEventListener("click", () => select(tab));
+      tab.addEventListener("keydown", (e) => {
+        const step = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        const next = tabs[(i + step + tabs.length) % tabs.length];
+        next.focus();
+        select(next);
+      });
+    });
+    new IntersectionObserver(
+      ([e], observer) => {
+        if (!e.isIntersecting) return;
+        observer.disconnect();
+        select(tabs.find((t) => t.getAttribute("aria-selected") === "true") ?? tabs[0]);
+      },
+      { threshold: 0.35 },
+    ).observe(editor);
+  }
+</script>
+
+<style>
+  .build {
+    padding-block: clamp(4rem, 9vw, 7rem);
+  }
+  .head {
+    display: grid;
+    justify-items: center;
+    gap: 1rem;
+    text-align: center;
+    margin-bottom: clamp(2rem, 5vw, 3.5rem);
+  }
+  .head :global(h2) {
+    font-size: clamp(2.4rem, 5.5vw, 4.6rem);
+  }
+
+  .editor {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    max-width: 66rem;
+    margin-inline: auto;
+    background: #161513;
+    color: #eceae3;
+    border: 1px solid var(--ink);
+    border-radius: 1rem;
+    overflow: hidden;
+    box-shadow:
+      0 2px 0 var(--ink),
+      0 2.5rem 4rem -2rem rgba(14, 13, 12, 0.45);
+  }
+  .tree {
+    display: grid;
+    align-content: start;
+    gap: 0.15rem;
+    padding: 1rem 0.6rem;
+    border-right: 1px solid #2c2a27;
+    background: #121110;
+  }
+  .tree__root {
+    padding: 0 0.6rem 0.5rem;
+    font-family: var(--code);
+    font-size: 0.72rem;
+    color: #a29d94;
+  }
+  .tree button {
+    display: grid;
+    gap: 0.1rem;
+    padding: 0.55rem 0.7rem;
+    text-align: left;
+    font: inherit;
+    color: #a29d94;
+    background: transparent;
+    border: 0;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: background-color 0.2s var(--ease), color 0.2s var(--ease);
+  }
+  .tree button:hover {
+    color: #eceae3;
+    background: #1d1c19;
+  }
+  .tree button[aria-selected="true"] {
+    color: #eceae3;
+    background: #24221f;
+    box-shadow: inset 3px 0 0 var(--red);
+  }
+  .dir {
+    font-family: var(--code);
+    font-size: 0.64rem;
+    opacity: 0.7;
+  }
+  .name {
+    font-family: var(--code);
+    font-size: 0.8rem;
+  }
+
+  .pane {
+    min-width: 0;
+  }
+  .file {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    min-height: 26rem;
+  }
+  .file[hidden] {
+    display: none;
+  }
+  .bar {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.7rem 1.1rem;
+    border-bottom: 1px solid #2c2a27;
+    font-family: var(--code);
+    font-size: 0.72rem;
+    color: #a29d94;
+  }
+  .bar strong {
+    color: #eceae3;
+    font-weight: 400;
+  }
+  .bar a {
+    color: #a29d94;
+  }
+  .bar a:hover {
+    color: #eceae3;
+  }
+  .file :global(pre) {
+    margin: 0;
+    padding: 1.2rem 1.2rem 1.4rem 0;
+    font-size: 0.8rem;
+    line-height: 1.75;
+    overflow-x: auto;
+    background: transparent !important;
+    counter-reset: line;
+  }
+  /* line numbers */
+  .file :global(.line) {
+    display: inline-block;
+    position: relative;
+    padding-left: 3.4rem;
+    min-height: 1.75em;
+    vertical-align: top;
+  }
+  .file :global(.line)::before {
+    counter-increment: line;
+    content: counter(line);
+    position: absolute;
+    left: 0;
+    width: 2.4rem;
+    text-align: right;
+    color: #5c5852;
+  }
+  /* typing: each line is revealed one character step at a time */
+  .file.typing :global(.line) {
+    clip-path: inset(0 100% 0 0);
+    animation: build-type calc(var(--n) * 9ms + 60ms) steps(var(--n), end) var(--d) forwards;
+  }
+  @keyframes build-type {
+    from {
+      clip-path: inset(0 calc(100% - 3.4rem) 0 0);
+    }
+    to {
+      clip-path: inset(0 0 0 0);
+    }
+  }
+  .status {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.45rem 1.1rem;
+    border-top: 1px solid #2c2a27;
+    font-family: var(--code);
+    font-size: 0.66rem;
+    color: #a29d94;
+  }
+
+  @media (max-width: 48rem) {
+    .editor {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .tree {
+      grid-auto-flow: column;
+      grid-auto-columns: max-content;
+      overflow-x: auto;
+      border-right: 0;
+      border-bottom: 1px solid #2c2a27;
+    }
+    .tree__root,
+    .dir {
+      display: none;
+    }
+  }
+</style>

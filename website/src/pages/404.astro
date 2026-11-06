@@ -1,0 +1,28 @@
+---
+/** Not found: the page took the mixnet seriously. */
+import Base from "../layouts/Base.astro";
+import PixelText from "../components/PixelText.astro";
+---
+
+<Base title="Not found: Topi" description="This page left no trace." noindex>
+  <main id="main" class="night lost">
+    <PixelText as="h1" text="4{o}4" live />
+    <p class="lead">This page left no trace.</p>
+    <a class="slab slab--red" href="/">Back to the site</a>
+  </main>
+</Base>
+
+<style>
+  .lost {
+    min-height: 100svh;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 1.6rem;
+    text-align: center;
+  }
+  .lost :global(h1) {
+    font-size: clamp(6rem, 24vw, 16rem);
+    line-height: 0.85;
+  }
+</style>

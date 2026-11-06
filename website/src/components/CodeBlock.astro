@@ -1,0 +1,116 @@
+---
+/** A highlighted code panel with its file name and a copy button. Lines type in when it is shown. */
+import { Code } from "astro:components";
+import { codeTheme } from "../lib/code-theme";
+
+interface Props {
+  code: string;
+  lang: "ts" | "solidity" | "shellscript" | "lean4";
+  title: string;
+  class?: string;
+}
+const { code, lang, title, class: cls } = Astro.props;
+---
+
+<figure class:list={["code", cls]}>
+  <figcaption>
+    <span class="file">{title}</span>
+    <button type="button" class="copy" data-copy={code}>Copy</button>
+  </figcaption>
+  <Code code={code} lang={lang} theme={codeTheme as any} />
+</figure>
+
+<script>
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-copy]")) {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy ?? "");
+        button.textContent = "Copied";
+      } catch {
+        button.textContent = "Select and copy";
+      }
+      button.classList.add("is-done");
+      setTimeout(() => {
+        button.textContent = "Copy";
+        button.classList.remove("is-done");
+      }, 1600);
+    });
+  }
+</script>
+
+<style>
+  .code {
+    margin: 0;
+    background: #161513;
+    border: 1px solid #2c2a27;
+    border-radius: 1rem;
+    overflow: hidden;
+    color: #e9e7df;
+    box-shadow: 0 1.5rem 3rem -1.5rem rgba(14, 13, 12, 0.5);
+  }
+  figcaption {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 0.7rem 0.6rem 1.1rem;
+    border-bottom: 1px solid #2c2a27;
+    font-size: var(--step--1);
+    color: #a29d94;
+  }
+  .file {
+    font-family: var(--code);
+    font-size: 0.72rem;
+  }
+  .copy {
+    font: inherit;
+    font-size: 0.75rem;
+    color: #e9e7df;
+    background: transparent;
+    border: 1px solid #2c2a27;
+    border-radius: 999px;
+    padding: 0.25rem 0.8rem;
+    cursor: pointer;
+    transition: background-color 0.2s var(--ease), border-color 0.2s var(--ease);
+  }
+  .copy:hover {
+    border-color: #ff4a24;
+  }
+  .copy.is-done {
+    background: #ff4a24;
+    border-color: #ff4a24;
+  }
+  .code :global(pre) {
+    margin: 0;
+    padding: 1.1rem 1.25rem 1.3rem;
+    font-size: 0.78rem;
+    line-height: 1.7;
+    overflow-x: auto;
+    background: transparent !important;
+  }
+  /* Lines arrive one after another, like they are being typed. */
+  .code :global(.line) {
+    display: inline-block;
+    animation: type-in 0.5s var(--ease) both;
+  }
+  @keyframes type-in {
+    from {
+      opacity: 0;
+      transform: translateX(-0.6rem);
+      clip-path: inset(0 100% 0 0);
+    }
+    to {
+      clip-path: inset(0 0 0 0);
+    }
+  }
+  .code :global(.line:nth-child(1)) { animation-delay: 0.05s; }
+  .code :global(.line:nth-child(2)) { animation-delay: 0.1s; }
+  .code :global(.line:nth-child(3)) { animation-delay: 0.15s; }
+  .code :global(.line:nth-child(4)) { animation-delay: 0.2s; }
+  .code :global(.line:nth-child(5)) { animation-delay: 0.25s; }
+  .code :global(.line:nth-child(6)) { animation-delay: 0.3s; }
+  .code :global(.line:nth-child(7)) { animation-delay: 0.35s; }
+  .code :global(.line:nth-child(8)) { animation-delay: 0.4s; }
+  .code :global(.line:nth-child(9)) { animation-delay: 0.45s; }
+  .code :global(.line:nth-child(n + 10)) { animation-delay: 0.5s; }
+</style>
