@@ -1,0 +1,75 @@
+---
+title: "Security model and limitations"
+description: "What Topi protects, against whom, and what it does not yet do."
+---
+
+<Warning>
+Topi is unaudited research software running on a testnet. Do not use it with real value.
+</Warning>
+
+## What Topi aims to protect
+
+| Property | Against | Provided by |
+|---|---|---|
+| Link between deposit and withdrawal | Chain observers | Zero-knowledge client proof; nullifiers reveal nothing about the note |
+| Sender's network identity | The exit, the RPC, network observers who do not see every link | Three-hop mixnet with fixed-size packets, batching and cover traffic |
+| Gas-payment linkage | Chain observers | The pool is the sender; a paymaster pays |
+| Pool funds | Anyone submitting transactions | Validation policy, statement binding, storage nullifiers; machine-checked model |
+| Long-term confidentiality and authorization | A future quantum adversary | X-Wing, hash-based proofs, leanSPHINCS |
+
+## Trust assumptions
+
+- **Cryptography.** ML-KEM-768 or X25519 (either suffices for packet secrecy), SHA-256, Keccak, Poseidon1 and Poseidon2 over KoalaBear, and the soundness and zero knowledge of Binius64, Spartan-WHIR, leanVM recursion and WHIR.
+- **The exit operator** is trusted for liveness, not for safety: it can refuse or delay spends, but it cannot redirect funds, because recipients and the fee recipient are fixed by the proof and the binding check.
+- **The mixnet** gives anonymity only if at least one hop is honest and there is enough concurrent traffic for batches to mix.
+- **The paymaster** risks only gas, and only for transactions its operator signed after checking the spends.
+
+## Known limitations
+
+### Mixnet
+
+- **Fixed route.** Every message uses the same gateway, mix and exit. With one node per role, a single compromised mix or a global observer of all links defeats mixing.
+- **Payload integrity is end to end.** The payload uses a per-hop stream layer, not a wide-block cipher, so tagging attacks on the payload are detected only at the recipient.
+- **Low traffic.** With few users, batches are small and timing correlation is easier. Cover traffic comes only from the gateway.
+- **Replay caches are in memory** for the life of the node process and there is no node key rotation; restarting a node clears its cache.
+- **Plain TCP between nodes**, one connection per packet, with no link encryption beyond the Sphinx layers.
+
+### Rate limiting
+
+- Tokens of one member within one epoch are linkable at the gateway.
+- Continuation token values travel in the clear to the gateway; an observer of that link can exhaust one message's continuation budget.
+- Each gateway keeps its own spent-token set; there is no shared set across gateways.
+- The member list in the topology is static; registration and removal policy is out of scope.
+- Ticket verification (about 0.19 s each) is a denial-of-service surface.
+
+### Pool and proofs
+
+- A settle aggregates exactly two spends. A lone spend waits for a partner.
+- The exit learns the public fields of the spends it pairs before they reach the chain.
+- Chain reads (roots, events) still go directly to the RPC, outside the mixnet.
+- Deposits are public; every deposit is associated (no association-set provider).
+- The exit proof needs about 12 GB of memory and about 19 minutes on a laptop, so it runs on dedicated hardware (151 s on a 32-vCPU AWS instance).
+- Upstream reports that full composition security of the recursion is not yet established.
+- A new circuit or upstream commit requires a new terminal verifier deployment.
+
+### Alt mempool
+
+- Chain 8141's ethrex has no ERC-7562 tracer, so the mempool's sidecar simulates validation untraced. It admits only the whitelisted pool account and paymaster, and its own admission policy stands in for the opcode and storage rules.
+- The deployed pool account and paymaster cannot stake themselves (no call to `addStake`), so they stay whitelisted entities rather than staked ones.
+- On the ERC-8421 devnet (chain 1337) the pool logic is `DevnetSettle`, which records nullifiers but does not verify the proof. Proofs are verified on chain 8141.
+
+### Accounts and authorization
+
+- leanSPHINCS is a candidate scheme with a young implementation.
+- Funding a PQ account, the fee recipient and the paymaster's admin withdrawal path still use classical accounts.
+- Ethereum consensus itself is not post-quantum.
+
+### Formal model
+
+- The Lean model abstracts cryptography and Merkle roots and assumes proof-system soundness.
+- Correspondence between the model and deployed bytecode is checked by differential testing, not proven.
+- The alt mempool and `DevnetSettle` are outside the model.
+
+## Reporting issues
+
+Report security issues privately to the maintainers rather than in public issues.

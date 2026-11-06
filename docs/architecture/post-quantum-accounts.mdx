@@ -1,0 +1,75 @@
+---
+title: "Post-quantum accounts"
+description: "EIP-8141 frame transactions, ARBITRARY signature entries and leanSPHINCS authorization."
+---
+
+EIP-8141 lets an account define its own validation in code. Topi uses that to authorize every transaction on the pool path with leanSPHINCS, a hash-based signature scheme, so the path from deposit to settlement needs no ECDSA key.
+
+## Frame transactions
+
+A frame transaction (type `0x06`) is a list of frames executed in order, plus a list of signature entries:
+
+```text
+raw       = 0x06 || rlp([chain_id, nonce_keys, nonce_seq, sender, frames, signatures, fees, blob_hashes])
+frame     = [mode, flags, target, [execution_gas, state_gas], value, data]
+signature = [scheme, signer, msg, signature_bytes]
+```
+
+| Mode | Value | Runs as |
+|---|---|---|
+| `DEFAULT` | 0 | The protocol entry point |
+| `VERIFY` | 1 | A validation call; the target calls `APPROVE` with a scope |
+| `SENDER` | 2 | The transaction sender, after execution was approved |
+
+A VERIFY frame's flags carry the approval scope: `PAYMENT` (1) makes the frame's target pay for the transaction, `EXECUTION` (2) lets later SENDER frames act as the sender, and 3 grants both. Validation as a whole is capped at 500,000 gas on chain 8141.
+
+Validation code reads the transaction through new opcodes: `TXPARAM` (`0xB0`), `FRAMEDATALOAD` (`0xB1`), `FRAMEPARAM` (`0xB3`), `SIGPARAM` (`0xB4`), `SIGDATACOPY` (`0xB5`) and `APPROVE` (`0xAA`). Solidity cannot emit these, so Topi's accounts and paymasters are written in Yul with `verbatim`.
+
+## ARBITRARY signature entries
+
+Signature schemes are `ARBITRARY` (0), `SECP256K1` (1) and `P256` (2). An `ARBITRARY` entry has an empty signer; its bytes are whatever the validating account expects, and a VERIFY frame checks them with `SIGDATACOPY`.
+
+The signature hash covers the whole transaction, VERIFY frame data included, except the bytes of signature entries whose `msg` is empty:
+
+```text
+sig_hash = keccak256(0x06 || rlp(envelope with the bytes of empty-msg entries elided))
+```
+
+So a witness placed in an empty-msg `ARBITRARY` entry can sign the entire transaction, including the frame that verifies it. The SDK builds the transaction with an empty placeholder entry, hashes it, signs the hash and writes the witness into the entry; filling the entry does not change the hash.
+
+## leanSPHINCS
+
+leanSPHINCS is a stateless hash-based signature scheme (a SPHINCS+ variant over Keccak). Topi uses the signer and on-chain verifier from `nconsigny/SPHINCS-`.
+
+| Property | Value |
+|---|---|
+| Signature size | 5,684 bytes |
+| Public key | Two 32-byte words, `pkSeed` and `pkRoot` |
+| Verifier interface | `ILeanSphincsVerifier.verify(pkSeed, pkRoot, message, sig)`, selector `0x2bf6eda8` |
+| Shared verifier on chain 8141 | `0xBf2BAD3E537A818B43a8885Ff6878139B4476bd4` |
+
+## The PQ account
+
+A user account built from `SphincsFrameAccount` and `SphincsFrameVerify`. Its transactions have two frames:
+
+| Frame | Mode | Target | Flags | Data |
+|---|---|---|---|---|
+| 0 | VERIFY | account | 3 (execution and payment) | the account's verify selector |
+| 1 | SENDER | any | 0 | the call |
+
+and one empty-msg `ARBITRARY` entry holding the leanSPHINCS witness over the signature hash. The account pays its own gas. Wallets use it to deposit into the pool and as the withdrawal recipient.
+
+## The PQ paymaster
+
+`PQPaymaster` pays for the pool's settle transactions. Its VERIFY entry (calldata `0x00000000`) approves payment only when the transaction belongs to its pool and carries exactly one signature entry: an empty-msg `ARBITRARY` entry that the shared verifier accepts under the exit operator's public key. Its VERIFY frame uses about 61,000 gas. It is funded by plain transfers, and its admin can withdraw with `withdraw()` (`0x3ccfd60b`).
+
+`ClassicPaymaster` is the same policy with one secp256k1 signature by the operator. It serves the first pool deployment.
+
+## What stays classical
+
+With a PQ paymaster deployment, every signature in a valid pool transaction is a hash-based `ARBITRARY` witness; this is the theorem `pq_pool_tx_has_no_ecdsa` in the [formal model](/architecture/formal-verification). Outside the pool path, a few pieces are still classical:
+
+- the account that first funds a PQ account;
+- the fee recipient, an ordinary address chosen by the exit;
+- the paymaster's admin withdrawal path;
+- Ethereum's own consensus.

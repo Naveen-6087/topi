@@ -1,0 +1,79 @@
+---
+title: "Shielded pool"
+description: "Notes, trees, nullifiers and the two-spend settle transaction."
+---
+
+The shielded pool follows the Privacy Pools withdrawal relation: deposits are public, withdrawals are proven in zero knowledge against a pool tree and an association tree, and a nullifier stops each note from being spent twice. Topi's pool runs as an EIP-8141 account so that a spend needs no user gas account, and it settles two spends per transaction with one hash-based terminal proof.
+
+## Contracts
+
+| Contract | Kind | Role |
+|---|---|---|
+| `PoolAccount` | Yul account code | The pool's address. Its VERIFY entry enforces the frame policy and approves execution; every other call is delegated to `ShieldedPool`. |
+| `ShieldedPool` | Solidity logic | Deposits, trees, root history, nullifiers, `settle`. All state lives in the pool account's storage. |
+| `StatementBinding` | Solidity library | Recomputes the lean statement digests and the application root a terminal proof commits to. |
+| `KoalaPoseidon2x24` | Generated Solidity | Unrolled Poseidon2 permutation (width 24) over the KoalaBear field. |
+| `PQPaymaster` / `ClassicPaymaster` | Yul accounts | Pay gas for pool transactions signed by the exit operator (leanSPHINCS or ECDSA). |
+
+## Field elements and digests
+
+All hashing is over the KoalaBear prime field, `p = 2,130,706,433`. A digest is eight field elements; on chain it is packed into one word, element `i` at bits `32i` to `32i + 31`. Every element entering the contract is checked to be below `p`.
+
+## Deposits
+
+`deposit(uint256[8] precommitment)` takes a nonzero value below 2^128 and a precommitment `hash_fields(PRECOMMIT, nullifier || secret)` that only the depositor can open. The pool then computes:
+
+```text
+label = hash_fields(LABEL, scope || index)
+note  = hash_fields(NOTE,  pool || label || amount || precommitment)
+```
+
+and inserts `[note, 0]` as a pair into the pool tree (so later paired inserts stay aligned) and `label` into the association tree. In this version every deposit is associated; there is no association-set provider. The `Deposited` event carries every leaf, so a wallet can rebuild both trees from logs alone.
+
+Both trees are depth-32 incremental Merkle trees with Poseidon2 node hashes. Every root the pool has had is recorded in `knownPoolRoot` and `knownAssociationRoot`; a spend may prove against any known root.
+
+## Spends
+
+A spend is described by 82 public fields (the layout is in [Message and spend formats](/reference/formats)): pool and scope identity, the fee recipient (`context`), recipient, withdrawn amount, fee, the pool and association roots, the nullifier hash and the change-note commitment. The client proof shows these fields describe a valid withdrawal; its only public input is the transaction digest `hash_fields(TRANSACTION, fields)`.
+
+## The settle transaction
+
+The exit prover submits one frame transaction whose sender is the pool:
+
+| Frame | Mode | Target | Data | Effect |
+|---|---|---|---|---|
+| 0 | VERIFY | pool | `0x00000000` | Pool policy; `APPROVE(EXECUTION)` |
+| 1 | VERIFY | paymaster | `0x00000000` | Operator signature check; `APPROVE(PAYMENT)` |
+| 2 | SENDER | pool | `settle(proofCall, a, b)` | Verification and state change |
+
+The pool's VERIFY policy approves only this exact shape: the sender is the pool, there are exactly three frames, frame 0 is the pool's own VERIFY with execution scope, frame 1 is another account's VERIFY with payment scope, and frame 2 is one zero-value SENDER call to the pool's `settle` (selector `0xf4b589c7`). The pool never pays gas.
+
+`settle(bytes proofCall, uint256[] a, uint256[] b)`:
+
+1. Requires `msg.sender` to be the pool itself, so it runs only as a SENDER frame of a validated pool transaction.
+2. Forwards `proofCall` to the terminal verifier (`verifyGroupedLogupV1`, selector `0x5801ce09`) and requires `true`.
+3. Recomputes the application root from both spends' fields with `StatementBinding` and requires it to equal the `applicationRoot` inside the proof calldata. The terminal verifier alone accepts any valid pair of statements; this binding is what ties the proof to these spends.
+4. For each spend: pool and scope match this pool, both roots are known, the nullifier is unspent (then marked spent).
+5. Inserts both change commitments as one pair and records the new root.
+6. Pays `withdrawn` to each recipient and `fee` to the address committed in the spend's `context`.
+7. Emits `Settled(leafIndex, nullifierA, nullifierB, changeA, changeB, poolRoot)`.
+
+Any failure reverts the SENDER frame: no nullifier is consumed and no value moves.
+
+## Design decisions
+
+- **Nullifiers live in storage, not in nonce keys.** If a nonce key had to equal a nullifier, an attacker could copy a pending spend's nullifier into a transaction with a bogus proof; validation would pass, the key would be consumed, `settle` would revert, and the victim's note would be unspendable. With storage nullifiers a failed settle consumes nothing.
+- **The fee goes to the committed address.** A front-runner who copies a valid proof can only execute the victim's own withdrawal and cannot redirect the fee.
+- **Fresh random nonce keys.** Each settle uses a random 128-bit EIP-8250 nonce key, so spends are order-free and can be delayed by the mixnet without a shared nonce queue. The fresh key's state gas (97,920) is billed to the payment approver, so the paymaster frame carries a state budget.
+- **Heavy work in the SENDER frame.** Validation on chain 8141 is capped at 500,000 gas, far below the cost of proof verification.
+
+## Gas
+
+A settle uses about 16.3M gas of the 2^24 (16,777,216) per-transaction execution cap. The default frame limits in the SDK are 10,000 for the pool's VERIFY frame, 150,000 for the PQ paymaster, and 14.6M execution plus 5M state for the settle frame. A tighter settle limit can run out of gas because of the EIP-150 63/64 rule; when it does, the frame reverts and nothing changes.
+
+## Limitations
+
+- A settle needs exactly two spends: the terminal proof aggregates two statements.
+- The circuit is deposit and withdraw with change; it does not do private note-to-note transfers to another person.
+- Deposits are public and every deposit is associated.
+- Testbed deployments (`testbed = true`) can seed roots and cap payouts at 1 wei; production deployments cannot.

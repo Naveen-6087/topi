@@ -1,0 +1,61 @@
+---
+title: "Formal verification"
+description: "A Lean 4 model of the pool's frame validation policy and settle state machine, with machine-checked theorems and differential tests against the chain."
+---
+
+The rules that protect pool funds are short but subtle: which frames may run as the pool, who pays, when a nullifier is consumed. `lean/` models them in Lean 4 and proves the properties that matter. The package is `pool-model`, with library `PoolModel` and executable `pool-policy`.
+
+```bash
+cd lean
+lake build                     # checks every proof
+lake env lean Audit.lean       # prints the axioms each result depends on
+```
+
+No result uses `sorry`, and `#print axioms` reports only Lean's standard `propext` and `Quot.sound`.
+
+## Models
+
+| File | Models |
+|---|---|
+| `PoolModel/Frames.lean` | EIP-8141 frame transactions as the validation code sees them (sender, frames with target, mode, flags, value, data length, selector and state budget, nonce keys, signature entries), and the policies `poolPolicy`, `paymasterPolicy`, `paymasterPQPolicy` and `pqAccountPolicy`, each transcribed check by check from its Yul program with the same failure codes. `valid` adds the protocol rule that each fresh nonce key's 97,920 state gas must fit the payment approver's state budget. |
+| `PoolModel/Settle.lean` | `ShieldedPool.deposit` and `settle` as a state machine, with ghost state for live notes and their values. Proof verification, statement binding and Merkle roots are abstracted. |
+
+## Theorems
+
+| Property | Results |
+|---|---|
+| Policy soundness | `poolPolicy_sound`: an approved pool transaction has exactly three frames of the required shape. `only_settle_runs_as_pool`: the only frame running with the pool as caller is that `settle` call. `pool_never_pays`: the payment approver is never the pool. `poolPolicy_not_at_1`. |
+| Paymaster authorization | `paymaster_pays_only_signed`: the classic paymaster approves only the pool's transactions with exactly one operator signature over the transaction hash. |
+| No double spend | `settle_ok_nullifiers`: a successful settle consumes two distinct, previously unspent nullifiers and nothing else. `run_distinct`: over any history of settles, no nullifier is spent twice. Supporting: `spendOne_ok`, `settle_ok_split`, `step_distinct`. |
+| Failed settle changes nothing | `failed_settle_changes_nothing`, `failed_settle_keeps_notes_spendable`: a reverted settle leaves the state unchanged and its notes spendable. |
+| No inflation | `settle_preserves_inv`, `deposit_preserves_inv`: the pool balance equals the value of live notes, and live nullifiers are distinct and unspent. |
+| Post-quantum authorization | `paymasterPQ_pays_only_verified`: the PQ paymaster pays only for the pool's transactions with exactly one `ARBITRARY` leanSPHINCS witness the verifier accepts under the exit's key. `pqAccount_needs_witness`, `validFromAccount_needs_witness`: a leanSPHINCS account approves only with a verifying witness. `pq_pool_tx_has_no_ecdsa`: under a PQ paymaster deployment every signature in a valid pool transaction is an `ARBITRARY` witness. Supporting: `firstWitness_spec`. |
+| List lemmas | `ite_err_ok`, `mem_keys`, `total_removeN`, `keys_removeN_sub`, `distinct_removeN`, `removeN_gone`, `mem_removeN`, `total_append` |
+
+Twenty-seven results in all; `lean/Audit.lean` lists each one.
+
+## What is assumed
+
+- leanSPHINCS is sound: a signature entry's `verifies` flag stands for the on-chain verifier accepting it.
+- The zero-knowledge proof system is sound: an accepted spend opens a live note whose value equals withdrawn plus fee plus change.
+- Change-note nullifiers are fresh.
+- The model matches the deployed bytecode. This is tested, not proven.
+
+## What is not modelled
+
+- The ERC-8421 alt mempool and its admission policy. They decide which settles reach the chain, not what a settle does.
+- `DevnetSettle` (`contracts/src/devnet/DevnetSettle.sol`), the stand-in pool logic on the ERC-8421 devnet (chain 1337). It sits outside the modelled pool; the model of `ShieldedPool` on chain 8141 is unchanged by it.
+
+## Differential tests against the chain
+
+`pool-policy` reads one JSON request per line (`{"deployment": {...}, "tx": {...}}`) and answers `{"valid", "pool", "paymaster"}` computed by the same functions the theorems are about. The scripts `scripts/diff-policy.ts` and `scripts/diff-account.ts` mutate a valid transaction (sender, frame count, targets, modes, flags, values, selector, data length, nonce keys, state budget, signer, witness corruption, wrong key, ECDSA instead of a witness), sign each variant, and compare chain 8141's `ethrex_simulateFrameTransaction` validity with the model.
+
+| Run | Agreement |
+|---|---|
+| Classic paymaster deployment, first run | 82 of 84 |
+| Classic paymaster deployment, after adding the nonce-key state rule | 528 of 528 (3 seeds) |
+| PQ paymaster deployment | 90 of 90 |
+| Classic paymaster regression | 56 of 56 |
+| PQ account | 42 of 42 |
+
+The two disagreements in the first run were the model's, not the chain's: they exposed the protocol rule that fresh nonce keys are billed to the payment approver's state budget, which the model then gained.

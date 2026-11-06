@@ -1,0 +1,112 @@
+---
+title: "Alternative mempool"
+description: "The topi privacy-pool mempool: an ERC-8421 alternative mempool that admits, gossips and relays the pool's settle transactions."
+---
+
+A settle is a frame transaction with the pool as sender. It cannot use the public mempool, so it travels through an ERC-8421 alternative mempool built for it: the topi privacy-pool mempool. The code is in `mempool/`; its definition is `mempool/RULES.md`.
+
+## Why settles need their own mempool
+
+- **One sender, one paymaster.** Every settle has the pool as sender and the same paymaster. The public mempool keeps one pending transaction per sender and per non-canonical paymaster.
+- **Validation gas.** A settle's validation prefix verifies a 5,684-byte leanSPHINCS witness. It needs 160,100 gas: the pool's VERIFY frame 10,000, the PQ paymaster's 150,000, and 100 for the signature entry. The public limit, and the EIP-8141 default, is 100,000.
+
+## Mempool id
+
+The mempool id is the IPFS CIDv0 of `mempool/RULES.md`:
+
+```bash
+node mempool/src/mempool-id.ts   # QmSwvDuyR1MBau6NdGtWv91dcrz6doYvVfZDTWNFk9wNRh
+```
+
+Changing the rules document changes the id.
+
+## Rules
+
+A node admits a settle when:
+
+1. It has three frames: VERIFY the pool with execution approval, VERIFY an accepted paymaster with payment approval, then one SENDER call to the pool's `settle`. No value, no blobs, a fresh nonce key at sequence 0.
+2. It has one signature entry: `ARBITRARY`, empty msg, 5,684 bytes, a leanSPHINCS witness that verifies under the exit's key on the shared verifier.
+3. Frame 0 and frame 1 execution limits plus the signature cost are at most 200,000.
+4. Both spends name this pool and scope and pay their fee to the transaction's fee recipient. Their nullifiers differ, are unspent on chain, and are not claimed by another pending settle. Their pool and association roots are known to the pool.
+5. The pool and paymaster still run the code the node recorded at start.
+6. The chain's simulation approves the validation prefix.
+
+At most 256 settles are pending, 64 per paymaster, and each expires after 30 minutes. Every new block re-checks the pending set, so a settle whose spend settled another way drops out.
+
+## The sidecar
+
+The mempool runs on the ERC-8421 sidecar, [forshtat/mempool-workshop-sidecar](https://github.com/forshtat/mempool-workshop-sidecar) (a skandha fork for EIP-8141 frame transactions), pinned to commit `2e22ff0a2898e69ea4bf5275bce1be8581a8582a` and extended by `mempool/sidecar/sidecar.patch`.
+
+| Patch adds | Why |
+|---|---|
+| Per-mempool validation budget, `maxVerifyGas` | The settle needs 160,100; this mempool allows 200,000 instead of the fixed 100,000 |
+| Pluggable admission policy (`mempool/src/policy.ts`) | Runs the rules above at admission and on every block; the explorer reports it as rule `policy` |
+| Untraced nodes (`traceSimulation: false`) | Chain 8141's ethrex has no ERC-7562 tracer. The node admits only whitelisted entities (the pool and its paymaster), and the policy stands in for the opcode and storage rules |
+| 8-field encoding (`eip8272: false`) | Chain 8141's frame transactions have no EIP-8272 recent-root field |
+| Relay through `eth_sendRawTransaction` | Relay to a public node instead of a co-located ethrex's privileged method |
+| Duplicate relay is not an error | Both nodes relay a gossiped settle; the second relay finds it already known |
+| Gossip frame-data limit raised from 64,000 bytes to 128 KiB | A settle is about 104 KB. The original limit dropped it silently, which is likely why the public devnet gateway did not forward our settle to its miner |
+
+Clients submit with `eth_sendFrameTransaction`, the transaction as JSON (`toFrameTxRequest` and `RpcClient.sendFrameTransaction` in the [SDK](/sdk/frames#mempool-json)). A refusal names the rule it broke.
+
+| JSON-RPC method | Does |
+|---|---|
+| `eth_sendFrameTransaction [tx]` | Submits a settle |
+| `skandha_frameTransactionStatus [hash]` | `New`, `Submitted`, `OnChain`, `Reverted`, and so on |
+| `skandha_explorer_listAdmissions [{}]` | Every submission with each rule's verdict |
+| `skandha_explorer_listTransactions [{}]` | The pool and its history |
+| `skandha_config []` | The node's settings |
+
+The explorer at explorer.altmempool.wtf reads these methods; the console's `e` key opens it on the local node.
+
+## Two nodes and gossip
+
+Two nodes gossip over libp2p. A settle submitted to node A reaches node B, which runs every check itself before relaying it.
+
+```bash
+bash mempool/sidecar/setup.sh                                              # Linux or WSL: clone, patch, build (Bun)
+bash mempool/sidecar/start.sh --p2p                                        # node A: RPC 47500, gossip 4337
+bash mempool/sidecar/start.sh --port 47501 --p2p-port 4338 --join 47500   # node B: dials node A
+```
+
+The console's `m` key starts both. Scripts take `--mempool http://127.0.0.1:47500/rpc` or `MEMPOOL_URL`.
+
+## Staking
+
+ERC-8421 nodes read entity stakes from a staking registry. On chain 8141 that is `NaiveStakingRegistry` (the same contract as on the devnet, `contracts/src/staking/`) at `0xE6F10a5181fE989bb1333fb25C8B912024E2bbf4`, recorded in `deployments/8141/staking.json`. Staking is keyed on the caller, and the deployed pool account and paymaster have no call to `addStake`, so they cannot stake themselves. They stay whitelisted entities. A later version of either contract can stake.
+
+## Results on chain 8141
+
+Settles submitted to the local sidecar, admitted, relayed and mined:
+
+| Block | Transaction |
+|---|---|
+| 717928 | `0x78cb37d8…` |
+| 719307 | `0xdf07c841…` |
+| 720937 | `0x13c3e2a9…` |
+| 721379 | `0x10f082fe…` |
+| 721480 | `0x58f2b739ecc0bc658d00e71194fe04e8793d44f8bb271401f9607c3106e64de8` |
+
+In block 721480 node B received the settle from node A by gossip and passed all 10 checks itself. From submission to mined takes about 20 s.
+
+## On the ERC-8421 devnet (chain 1337)
+
+The organizers' public alt mempool devnet applies the standard ERC-8421 rules with full ERC-7562 tracing and no custom policy. A post-quantum settle passed 24 of 24 admission checks there and was mined in block 8944: [`0x763107be…f5b21a152`](https://explorer.altmempool.wtf/tx/0x763107bea261cf6add7240d634540da223ba748aeed73458db3b085f5b21a152?node=https://altmempool.forshtat.com/rpc).
+
+The full pool does not fit that chain. Its 60M block gas limit and about 1,530 state gas per byte of code cap deployable code at about 37 KB, while the terminal verifier is 59 KB and `ShieldedPool` 50 KB. So `deployments/1337/pool.json` pairs the real PoolAccount, PQPaymaster and leanSPHINCS verifier with `DevnetSettle` (`contracts/src/devnet/DevnetSettle.sol`). `DevnetSettle` checks pool and scope, refuses spent nullifiers and records them. It does not verify the proof; that happens on chain 8141. The PQPaymaster there has a validation limit of 95,000, within the unstaked per-entity budget.
+
+`deployments/1337/genesis/` packages the full pool as genesis accounts for the devnet's operators. Frame transactions on chain 1337 carry a ninth field (EIP-8272 recent roots); the SDK adds it for that chain.
+
+```bash
+RPC_URL=https://altmempool.forshtat.com node scripts/settle.ts --deployment deployments/1337/pool.json \
+  --calldata CALLDATA.bin --fields VECTORS.json --paymaster-gas 95000 --settle-gas 3000000 \
+  --send --mempool https://altmempool.forshtat.com/rpc
+```
+
+## A lighter mempool for development
+
+`mempool/src/main.ts` is a self-contained mempool with the same rules and no sidecar: JSON-RPC, gossip between peers, release one settle at a time, and Prometheus metrics on `GET /metrics` (see `METRICS.md`).
+
+## What the formal model covers
+
+The Lean model does not cover the mempool or `DevnetSettle`. See [Formal verification](/architecture/formal-verification).

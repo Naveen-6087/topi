@@ -1,0 +1,69 @@
+---
+title: "Rate limiting"
+description: "Anonymous per-epoch rate limiting with Binius64 zero-knowledge tickets over SHA-256."
+---
+
+The gateway must refuse floods without learning who sends what. `crates/ratelimit` gives each registered member a fixed number of messages per epoch and lets the gateway enforce it from a zero-knowledge proof made once per epoch plus a small hash token per message. Everything rests on SHA-256: there are no pairings, no elliptic curves and no trusted setup.
+
+## Parameters
+
+| Parameter | Value | Source |
+|---|---|---|
+| Epoch length | 600 s | `EPOCH_SECS` in `crates/mixnet/src/topology.rs` |
+| Tokens per member per epoch (`L`) | 16 | `topi_ratelimit::DEFAULT_L` |
+| Membership tree depth | 16 | `topi_ratelimit::DEFAULT_DEPTH` |
+| Continuation packets per token | 512 | `CONTINUATIONS_PER_TOKEN` in `crates/mixnet/src/ratelimit.rs` |
+
+## Construction
+
+```text
+Registration:   C = SHA256("TPID" || sk)                     appended to the member list
+                M = Merkle root over all C (depth 16)         published in the topology
+
+Each epoch (client):
+  t_i = SHA256("TPTK" || sk || epoch:u64be || i:u32be)       for i in 0..L
+  R   = MerkleRoot(t_0 .. t_{L-1})
+  pi  = ZK proof: exists sk, path such that
+          MerkleRoot_path(SHA256("TPID" || sk)) = M  and  R = MerkleRoot(t_i(sk, epoch))
+        public inputs (M, epoch, R)
+  EpochTicket = (R, pi)
+
+Each message:   Token = (t_i, i, path_i to R)                 164 bytes for L = 16
+```
+
+The gateway verifies the ticket once per `R`, then accepts each distinct `t_i` under `R` once. Only `L` leaves exist under `R`, and `R` is a deterministic function of `(sk, epoch)`, so a member cannot exceed `L` messages per epoch at that gateway. Over-use is impossible rather than punishable; there is no slashing.
+
+The proof is a Binius64 proof in zero-knowledge mode: the inner Binius64 proof becomes private witness of an outer Spartan proof with blinding, committed through a BaseFold ZK compiler. Only `M`, `epoch` and `R` are public. The Fiat-Shamir transcript observes them first, so a ticket cannot be moved to another root, epoch or token root.
+
+## Continuation budget
+
+A spend is about 280 packets, far more than 16. A message therefore spends one token on its first packet, and the gateway grants that token value a budget of 512 continuation packets. Further packets of the same message carry only the 32-byte token value. A budget stays valid through the following epoch, so a long message that straddles an epoch boundary is not cut off.
+
+## Wire frames
+
+The rate limiter listens on port 47201 and answers each frame with one byte, `1` for admitted and `0` for refused.
+
+| Kind | Frame |
+|---|---|
+| Ticket | `0x01 \| len u32 BE \| ticket` |
+| First packet | `0x02 \| token root [32] \| len u16 BE \| token \| packet [8192]` |
+| Continuation | `0x03 \| token value [32] \| packet [8192]` |
+
+Clients keep their per-epoch state (`epoch next_index`) next to the identity file and take an exclusive lock file, so concurrent senders sharing an identity never reuse a token index.
+
+## Costs
+
+| Item | Size or time |
+|---|---|
+| Epoch ticket | about 316 KiB |
+| Prove (once per epoch) | about 0.2 to 0.9 s |
+| Verify at the gateway | about 0.19 s |
+| Token | 164 bytes |
+
+## Limitations
+
+- **Linkability within an epoch.** All tokens of one member in one epoch sit under the same `R`, so the gateway can link them to one pseudonym. Short epochs and a small `L` limit this.
+- **Continuation tokens travel in the clear to the gateway.** An observer on the client-to-gateway link could replay a token value to exhaust that one message's continuation budget. It cannot mint new budget.
+- **Per-gateway state.** Each gateway keeps its own spent-token set; with several gateways a member could use each token once at each.
+- **Ticket verification is a denial-of-service surface.** Junk tickets with fresh `R` values each cost a verification.
+- **Membership management** (registration policy, removal, root history) is outside the crate; the topology carries a static member list.
