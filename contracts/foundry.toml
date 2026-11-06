@@ -1,0 +1,30 @@
+[profile.default]
+src = "src"
+out = "out"
+test = "test"
+script = "script"
+libs = ["lib"]
+solc = "0.8.28"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+remappings = [
+  "forge-std/=lib/forge-std/src/",
+  "sol-whir-p3/=lib/sol-whir-p3/src/",
+]
+# Tests read the terminal-proof and hashing fixtures, the Yul sources and the Lean frame model
+# (for the Yul/Lean constant parity test). Nothing is written.
+fs_permissions = [
+  { access = "read", path = "./test/fixtures" },
+  { access = "read", path = "./yul" },
+  { access = "read", path = "../lean" },
+]
+
+# The generated Poseidon2 permutation is ~1,600 lines of already-scheduled Yul; the default via-IR step
+# sequence takes >30 min on it. A short sequence keeps stack allocation (needed by LeanVmPoseidon1).
+[profile.default.optimizer_details]
+yul = true
+
+[profile.default.optimizer_details.yulDetails]
+stackAllocation = true
+optimizerSteps = "u:fDnTOcmu"
