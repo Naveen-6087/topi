@@ -1,0 +1,19 @@
+{
+  "name": "@topi/mempool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An alternative mempool for the shielded pool's settle transactions",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "@topi/sdk": "0.1.0"
+  }
+}
