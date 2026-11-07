@@ -13,7 +13,7 @@ if grep -q "^\[workspace\]" "$ROOT/Cargo.toml" 2>/dev/null; then
   cargo build --release --locked --manifest-path "$ROOT/Cargo.toml" -p topi-mixnet --bin topi-node
 else
   # No source here (the console's unpacked assets): build the node from the repository.
-  cargo install --locked --git "${TOPI_GIT:-https://github.com/Naveen-6087/EGM}" topi-mixnet --bin topi-node     --root "$CARGO_TARGET_DIR/git" --force
+  cargo install --locked --git "${TOPI_GIT:-https://github.com/Naveen-6087/topi}" topi-mixnet --bin topi-node     --root "$CARGO_TARGET_DIR/git" --force
   mkdir -p "$CARGO_TARGET_DIR/release" && cp "$CARGO_TARGET_DIR/git/bin/topi-node" "$CARGO_TARGET_DIR/release/"
 fi
 

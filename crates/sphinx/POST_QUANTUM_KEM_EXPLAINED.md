@@ -98,7 +98,7 @@ When expanded to **polynomial rings with matrices in hundreds or thousands of di
 
 ## 4. What is "X-Wing" in Topi? (Hybrid Defense)
 
-Topi utilizes **X-Wing** (specified in [`crates/sphinx/src/lib.rs`](file:///home/vishal/Projects/EGM/crates/sphinx/src/lib.rs)):
+Topi utilizes **X-Wing** (specified in [`crates/sphinx/src/lib.rs`](src/lib.rs)):
 
 ```rust
 pub const CT: usize = x_wing::CIPHERTEXT_SIZE; // 1,120 bytes

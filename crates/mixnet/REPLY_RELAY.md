@@ -3,7 +3,7 @@
 > **Component:** `Role::ReplyRelay` (Role ID `4`)  
 > **Network Port:** `47104` (Relay), `47300` (Stats), `47400` (Prometheus Metrics)  
 > **Default Testnet Region:** `ap-southeast-1` (Singapore)  
-> **Source Files:** [`crates/mixnet/src/node.rs`](file:///home/vishal/Projects/EGM/crates/mixnet/src/node.rs), [`crates/sphinx/src/lib.rs`](file:///home/vishal/Projects/EGM/crates/sphinx/src/lib.rs), [`crates/mixnet/src/replies.rs`](file:///home/vishal/Projects/EGM/crates/mixnet/src/replies.rs)
+> **Source Files:** [`crates/mixnet/src/node.rs`](src/node.rs), [`crates/sphinx/src/lib.rs`](../sphinx/src/lib.rs), [`crates/mixnet/src/replies.rs`](src/replies.rs)
 
 ---
 
@@ -67,7 +67,7 @@ An adversary seeking to correlate ingress and egress traffic by subpoena or phys
 
 ## 4. Cryptographic Mechanics of a SURB
 
-A Single-Use Reply Block is created entirely on the client's laptop inside [`crates/mixnet/src/client.rs`](file:///home/vishal/Projects/EGM/crates/mixnet/src/client.rs):
+A Single-Use Reply Block is created entirely on the client's laptop inside [`crates/mixnet/src/client.rs`](src/client.rs):
 
 ```rust
 // crates/mixnet/src/client.rs
@@ -124,7 +124,7 @@ When the Exit Node responds:
 
 ## 6. How the Reply Relay Processes Packets
 
-Inside [`crates/mixnet/src/node.rs`](file:///home/vishal/Projects/EGM/crates/mixnet/src/node.rs), the Reply Relay runs the standard Sphinx `process()` pipeline:
+Inside [`crates/mixnet/src/node.rs`](src/node.rs), the Reply Relay runs the standard Sphinx `process()` pipeline:
 
 ```rust
 // crates/mixnet/src/node.rs
@@ -161,7 +161,7 @@ let p = match process(&sk, &pkt, &mut seen.lock().unwrap()) {
 
 Because the client is behind a home firewall (NAT), the packet cannot be pushed directly to the user's IP. 
 
-Instead, the return envelope terminates at the **Gateway's Reply Store** in Mumbai ([`crates/mixnet/src/replies.rs`](file:///home/vishal/Projects/EGM/crates/mixnet/src/replies.rs)):
+Instead, the return envelope terminates at the **Gateway's Reply Store** in Mumbai ([`crates/mixnet/src/replies.rs`](src/replies.rs)):
 
 ```text
        [Exit (USA)] ──► [Reply Relay (SG)] ──► [Mix (DE)] ──► [Gateway (IN)]

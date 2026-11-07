@@ -50,9 +50,9 @@ pub fn rpc_call(url: &str, method: &str, params: Value) -> Result<Value, String>
         if attempt > 0 {
             std::thread::sleep(Duration::from_millis(500 * (1 << (attempt - 1)).min(4000)));
         }
-        let res = ureq::post(url).timeout(Duration::from_secs(30)).send_json(&body);
+        let res = ureq::post(url).config().timeout_global(Some(Duration::from_secs(30))).build().send_json(&body);
         match res {
-            Ok(resp) => match resp.into_json::<Value>() {
+            Ok(resp) => match resp.into_body().read_json::<Value>() {
                 Ok(val) => {
                     if let Some(err) = val.get("error") {
                         return Err(err.to_string());

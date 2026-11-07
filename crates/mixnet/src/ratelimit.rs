@@ -196,11 +196,21 @@ impl RateLimitClient {
 
     /// Connect to a specific gateway rate-limiter endpoint address.
     pub async fn connect_to(addr: &str, topo: &Topology, identity: impl AsRef<Path>) -> Result<RateLimitClient> {
-        let identity = identity.as_ref().to_path_buf();
+        let identity = identity.as_ref();
+        let epoch = current_epoch();
+        match Self::connect_in(addr, topo, identity, epoch).await {
+            // The epoch turned while the ticket was proved or sent, so the gateway now wants the next
+            // epoch's ticket: prove that one instead.
+            Err(_) if current_epoch() != epoch => Self::connect_in(addr, topo, identity, current_epoch()).await,
+            r => r,
+        }
+    }
+
+    async fn connect_in(addr: &str, topo: &Topology, identity: &Path, epoch: u64) -> Result<RateLimitClient> {
+        let identity = identity.to_path_buf();
         let _guard = FileLock::acquire(&identity);
         let id = load_identity(&identity)?;
         let state = identity.with_extension("state");
-        let epoch = current_epoch();
         let ticket_cache = identity.with_extension(format!("ticket-{epoch}"));
         let members = topo.members()?;
         let root = topo.root()?;

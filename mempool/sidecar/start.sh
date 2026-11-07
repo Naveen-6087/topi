@@ -20,7 +20,7 @@ BUN=${BUN:-$(command -v bun || echo "$HOME/.bun/bin/bun")}
 [ -f "$DIR/packages/cli/bin/skandha.js" ] || { echo "sidecar not built: bash mempool/sidecar/setup.sh" >&2; exit 1; }
 if [ -f "$ROOT/.env" ]; then
   set -a
-  # shellcheck disable=SC1091
+  # shellcheck disable=SC1090,SC1091
   . <(tr -d '\r' <"$ROOT/.env")
   set +a
 fi
@@ -38,8 +38,7 @@ while [ $# -gt 0 ]; do
       ENR_FILE=$DIR/data-$2/node/enr
       for _ in $(seq 1 60); do [ -s "$ENR_FILE" ] && break; sleep 1; done
       [ -s "$ENR_FILE" ] || { echo "no node on API port $2 to join (no $ENR_FILE)" >&2; exit 1; }
-      BOOTNODE=$(tr -d '
-' <"$ENR_FILE"); P2P=true; shift 2 ;;
+      BOOTNODE=$(tr -d '\n' <"$ENR_FILE"); P2P=true; shift 2 ;;
     --p2p-port) P2P_PORT=$2; shift 2 ;;
     -h | --help) sed -n '2,13p' "$0"; exit 0 ;;
     *) echo "unknown option $1" >&2; exit 2 ;;

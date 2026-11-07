@@ -16,7 +16,7 @@ REPO=https://github.com/forshtat/mempool-workshop-sidecar.git
 REV=2e22ff0a2898e69ea4bf5275bce1be8581a8582a
 BUN=${BUN:-$(command -v bun || echo "$HOME/.bun/bin/bun")}
 [ -x "$BUN" ] || { echo "bun not found: curl -fsSL https://bun.sh/install | bash" >&2; exit 1; }
-export PATH="$(dirname "$BUN"):$PATH"   # its build scripts call bun by name
+PATH="$(dirname "$BUN"):$PATH"; export PATH   # its build scripts call bun by name
 
 if [ ! -d "$DIR/.git" ]; then
   git clone --quiet "$REPO" "$DIR"

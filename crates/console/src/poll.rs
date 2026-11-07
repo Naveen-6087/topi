@@ -124,7 +124,15 @@ fn read_chain(cfg: &ChainConfig) -> Result<Chain, String> {
 pub fn mempool_status(url: &str) -> Option<Value> {
     let call = |method: &str, params: Value| -> Option<Value> {
         let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
-        let resp: Value = ureq::post(url).timeout(Duration::from_millis(800)).send_json(body).ok()?.into_json().ok()?;
+        let resp: Value = ureq::post(url)
+            .config()
+            .timeout_global(Some(Duration::from_millis(800)))
+            .build()
+            .send_json(body)
+            .ok()?
+            .into_body()
+            .read_json()
+            .ok()?;
         resp.get("result").cloned()
     };
     // The ERC-8421 sidecar: counters from its explorer's admissions and transactions.
@@ -152,10 +160,13 @@ pub fn mempool_status(url: &str) -> Option<Value> {
 fn rpc(url: &str, method: &str, params: Value) -> Result<Value, String> {
     let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
     let resp: Value = ureq::post(url)
-        .timeout(Duration::from_secs(30))
+        .config()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .build()
         .send_json(body)
         .map_err(|e| e.to_string())?
-        .into_json()
+        .into_body()
+        .read_json()
         .map_err(|e| e.to_string())?;
     if let Some(err) = resp.get("error") {
         return Err(err.to_string());

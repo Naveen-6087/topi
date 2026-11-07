@@ -32,7 +32,7 @@ if [ -f "$ROOT/.env" ]; then
   set +a
 fi
 if [ -n "${FOUNDRY_BIN:-}" ]; then export PATH="$FOUNDRY_BIN:$PATH"; fi
-if [ -n "${NODE_BIN:-}" ]; then export PATH="$(dirname "$NODE_BIN"):$PATH"; fi
+if [ -n "${NODE_BIN:-}" ]; then PATH="$(dirname "$NODE_BIN"):$PATH"; export PATH; fi
 
 NAME=""
 PQKEY=""

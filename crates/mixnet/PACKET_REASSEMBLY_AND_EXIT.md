@@ -55,7 +55,7 @@ Each fragment carries a **14-byte fixed prefix** prepended to its chunk:
 
 ## 3. The In-Memory Reassembly Engine (`Partial`)
 
-In [`crates/mixnet/src/exit.rs`](file:///home/vishal/Projects/EGM/crates/mixnet/src/exit.rs), the Exit node maintains an in-memory thread-safe buffer:
+In [`crates/mixnet/src/exit.rs`](src/exit.rs), the Exit node maintains an in-memory thread-safe buffer:
 
 ```rust
 pub struct Exit {
