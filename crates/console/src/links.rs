@@ -2,7 +2,7 @@
 
 use std::process::{Command, Stdio};
 
-pub const SITE: &str = "https://topi.topi-website.workers.dev";
+pub const SITE: &str = "https://usetopi.pages.dev";
 pub const REPO: &str = "https://github.com/Naveen-6087/topi";
 /// The chain 8141 block explorer (Dora).
 pub const EXPLORER: &str = "https://dora.privacy.ethrex.xyz";

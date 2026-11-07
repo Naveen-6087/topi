@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://topi.topi-website.workers.dev">Website</a> ·
+  <a href="https://usetopi.pages.dev">Website</a> ·
   <a href="whitepaper">Whitepaper</a> ·
   <a href="docs">Documentation</a> ·
   <a href="#architecture">Architecture</a> ·
